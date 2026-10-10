@@ -1,0 +1,36 @@
+name: Build APK from zip
+on:
+  workflow_dispatch:
+  push:
+    paths: ['q14-audio-lab.zip']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack
+        run: |
+          unzip -q q14-audio-lab.zip
+          cp -a q14-audio-lab/. ./
+          rm -rf q14-audio-lab .github/workflows/android.yml .github/workflows/pages.yml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - run: gradle -p android assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q14-audio-lab-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Commit sources
+        continue-on-error: true
+        run: |
+          git config user.name github-actions
+          git config user.email actions@users.noreply.github.com
+          git add -A
+          git diff --cached --quiet || (git commit -m "Unpack sources" && git push)
