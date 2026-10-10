@@ -4,12 +4,13 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
-import android.view.View;
+import android.webkit.JavascriptInterface;
 import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
 import android.webkit.ValueCallback;
@@ -19,13 +20,12 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.Button;
 import android.widget.EditText;
-import android.widget.LinearLayout;
 
 /**
  * EQo: mở app là thấy ngay giao diện EQ (trang web nhúng trong assets, phục vụ bởi EqService
  * tại 127.0.0.1:8766). Dịch vụ tự bật khi mở app và vẫn chạy nền khi thoát.
+ * Các chức năng (pin, thoát, màu thanh trạng thái) được trang web gọi qua cầu nối EQoNative.
  */
 public class MainActivity extends Activity {
     private static final String URL = "http://127.0.0.1:8766/";
@@ -36,18 +36,34 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCb;
     private int retries = 0;
 
-    private int dp(int v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
-    }
+    /** Cầu nối cho trang web nhúng (chỉ tải nội dung từ 127.0.0.1). */
+    public class Bridge {
+        @JavascriptInterface
+        public void batterySettings() {
+            runOnUiThread(() -> startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)));
+        }
 
-    private Button barButton(String s, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTextSize(12);
-        b.setOnClickListener(l);
-        b.setLayoutParams(new LinearLayout.LayoutParams(0, dp(44), 1f));
-        return b;
+        @JavascriptInterface
+        public void stopAndExit() {
+            runOnUiThread(() -> {
+                stopService(new Intent(MainActivity.this, EqService.class));
+                finishAffinity();
+            });
+        }
+
+        @JavascriptInterface
+        public void setBarColor(final String hex) {
+            runOnUiThread(() -> {
+                try {
+                    int c = Color.parseColor(hex);
+                    getWindow().setStatusBarColor(c);
+                    getWindow().setNavigationBarColor(c);
+                    getWindow().setBackgroundDrawable(new ColorDrawable(c));
+                    if (web != null) web.setBackgroundColor(c);
+                } catch (Exception ignored) {
+                }
+            });
+        }
     }
 
     @Override
@@ -55,17 +71,19 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         if (!EqService.running) startForegroundService(new Intent(this, EqService.class));
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#0b0e14"));
+        int bg = Color.parseColor("#0b0e14");
+        getWindow().setBackgroundDrawable(new ColorDrawable(bg));
+        getWindow().setStatusBarColor(bg);
+        getWindow().setNavigationBarColor(bg);
 
         web = new WebView(this);
-        web.setBackgroundColor(Color.parseColor("#0b0e14"));
+        web.setBackgroundColor(bg);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);          // localStorage: lưu preset
+        s.setDomStorageEnabled(true);          // localStorage: lưu preset và cài đặt
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
+        web.addJavascriptInterface(new Bridge(), "EQoNative");
 
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -131,22 +149,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        root.addView(web, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setBackgroundColor(Color.parseColor("#131824"));
-        bar.addView(barButton("Tối ưu pin", v ->
-                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))));
-        bar.addView(barButton("Tắt EQ & thoát", v -> {
-            stopService(new Intent(this, EqService.class));
-            finishAffinity();
-        }));
-        root.addView(bar, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        setContentView(root);
+        setContentView(web);
         handler.postDelayed(() -> web.loadUrl(URL), 600);
     }
 

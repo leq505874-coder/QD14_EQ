@@ -1,18 +1,39 @@
 'use strict';
 
-/* ================= Hằng số & trạng thái ================= */
+/* ================= Hằng số ================= */
 const FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const LABELS = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
 const MIN = -12, MAX = 12, STEP = 0.5;
 const WS_URL = 'ws://127.0.0.1:8765';
 const EMBED_URL = 'http://127.0.0.1:8766/';
 const LS_KEY = 'q14.state.v1';
+const NATIVE = window.EQoNative || null;   // cầu nối từ app Android (nếu chạy trong app)
 
 const PRESETS = {
+  'Neutral':       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   'Vocal Clear':   [-4, -3, -2, -1, 0, 1, 3, 4, 2, 0],
   'V-pop Ballad':  [1, 2, 2, 1, 0, 1, 2, 3, 3, 2],
   'Bass Moderate': [4, 4, 3, 1, 0, 0, 0, 0, 1, 1],
-  'Neutral':       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  'Bass Boost':    [7, 6, 5, 2, 0, 0, 0, 0, 0, 0],
+  'Treble Boost':  [0, 0, 0, 0, 0, 1, 2, 4, 6, 7],
+  'Loudness':      [6, 4, 1, 0, -1, 0, -1, 0, 3, 5],
+  'Rock':          [5, 4, 3, 1, -1, -1, 1, 3, 4, 5],
+  'Pop':           [-1, 1, 3, 4, 3, 0, -1, -1, 1, 2],
+  'Hip-hop':       [6, 5, 3, 3, -1, -1, 1, -1, 2, 3],
+  'EDM':           [6, 5, 2, 0, -2, 0, 1, 3, 5, 6],
+  'Jazz':          [3, 2, 1, 2, -2, -2, 0, 1, 2, 3],
+  'Classical':     [4, 3, 2, 1, -1, -1, 0, 2, 3, 4],
+  'Acoustic':      [4, 4, 3, 1, 2, 2, 3, 3, 3, 2],
+  'Podcast':       [-6, -5, -3, 0, 2, 3, 3, 2, -1, -3],
+};
+const DEVICE_KEYS = ['speaker', 'wired', 'bluetooth'];
+const DEVICE_LABEL = { speaker: 'Loa ngoài', wired: 'Tai nghe có dây', bluetooth: 'Bluetooth' };
+const SELECT_ID = { speaker: 'autoSpeaker', wired: 'autoWired', bluetooth: 'autoBt' };
+const SWATCHES = ['#37d6c4', '#6c8cff', '#ff6b9d', '#ffb347', '#a78bfa', '#4ade80', '#f87171', '#38bdf8'];
+const BGS = {
+  dark:     { bg: '#0b0e14', card: '#131824', card2: '#1a2132', line: '#262f45' },
+  amoled:   { bg: '#000000', card: '#0b0b0d', card2: '#151518', line: '#26262b' },
+  midnight: { bg: '#0a1020', card: '#101a30', card2: '#17233f', line: '#25365c' },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -20,25 +41,21 @@ const state = {
   enabled: true,
   headroom: true,
   gains: Array(10).fill(0),
-  custom: {},            // { tên: [10 số] }
-  mode: 'global',        // global | sessions | both
-  engine: 'auto',        // auto | equalizer | dynamics
+  custom: {},
+  mode: 'global',
+  engine: 'auto',
+  preamp: 0, bass: 0, virt: 0, loud: 0,
+  autostart: false,
+  autoOn: false,
+  autoMap: { speaker: null, wired: null, bluetooth: null },
+  lastAutoSeq: 0,
+  theme: { accent: '#37d6c4', bg: 'dark', radius: 10 },
 };
 
-function loadState() {
-  try {
-    const s = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
-    if (!s) return;
-    if (Array.isArray(s.gains) && s.gains.length === 10) state.gains = s.gains.map(clampGain);
-    if (typeof s.enabled === 'boolean') state.enabled = s.enabled;
-    if (typeof s.headroom === 'boolean') state.headroom = s.headroom;
-    if (s.custom && typeof s.custom === 'object') state.custom = s.custom;
-    if (['global', 'sessions', 'both'].includes(s.mode)) state.mode = s.mode;
-    if (['auto', 'equalizer', 'dynamics'].includes(s.engine)) state.engine = s.engine;
-  } catch (e) { /* localStorage có thể bị chặn */ }
-}
-function saveState() {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { /* bỏ qua */ }
+/* ================= Lưu / nạp ================= */
+function num(v, lo, hi, def) {
+  const n = Number(v);
+  return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def;
 }
 function clampGain(g) {
   g = Number(g); if (!isFinite(g)) g = 0;
@@ -46,11 +63,99 @@ function clampGain(g) {
 }
 function fmt(g) { return (g > 0 ? '+' : '') + g.toFixed(1); }
 
-/** Gain thực tế gửi tới audio engine (web + Android). */
+function loadState() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { /* bỏ qua */ }
+  if (!s || typeof s !== 'object') return;
+  if (Array.isArray(s.gains) && s.gains.length === 10) state.gains = s.gains.map(clampGain);
+  ['enabled', 'headroom', 'autoOn', 'autostart'].forEach((k) => { if (typeof s[k] === 'boolean') state[k] = s[k]; });
+  if (s.custom && typeof s.custom === 'object') state.custom = s.custom;
+  if (['global', 'sessions', 'both'].includes(s.mode)) state.mode = s.mode;
+  if (['auto', 'equalizer', 'dynamics'].includes(s.engine)) state.engine = s.engine;
+  state.preamp = num(s.preamp, -12, 12, 0);
+  state.bass = num(s.bass, 0, 100, 0);
+  state.virt = num(s.virt, 0, 100, 0);
+  state.loud = num(s.loud, 0, 12, 0);
+  if (s.autoMap && typeof s.autoMap === 'object') {
+    DEVICE_KEYS.forEach((k) => { state.autoMap[k] = typeof s.autoMap[k] === 'string' ? s.autoMap[k] : null; });
+  }
+  if (typeof s.lastAutoSeq === 'number') state.lastAutoSeq = s.lastAutoSeq;
+  if (s.theme && typeof s.theme === 'object') {
+    if (/^#[0-9a-fA-F]{6}$/.test(s.theme.accent)) state.theme.accent = s.theme.accent;
+    if (BGS[s.theme.bg]) state.theme.bg = s.theme.bg;
+    if ([4, 10, 16].includes(s.theme.radius)) state.theme.radius = s.theme.radius;
+  }
+}
+function saveState() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { /* bỏ qua */ }
+}
+
+function allPresets() { return Object.assign({}, PRESETS, state.custom); }
+function presetGains(name) {
+  const p = name ? allPresets()[name] : null;
+  return Array.isArray(p) && p.length === 10 ? p : null;
+}
+
+/** Gain gửi tới bộ xử lý (web + Android): headroom rồi cộng preamp. */
+function effFrom(gains) {
+  const off = state.headroom ? -Math.max(0, ...gains) : 0;
+  return gains.map((g) => Math.max(-24, Math.min(24, g + off + state.preamp)));
+}
 function effectiveGains() {
-  if (!state.enabled) return Array(10).fill(0);
-  const off = state.headroom ? -Math.max(0, ...state.gains) : 0;
-  return state.gains.map((g) => g + off);
+  return state.enabled ? effFrom(state.gains) : Array(10).fill(0);
+}
+
+/* ================= Chủ đề màu ================= */
+const th = { accent: '#37d6c4', accent2: '#6c8cff' };
+
+function hexToRgb(h) {
+  const n = parseInt(h.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgba(h, a) { const c = hexToRgb(h); return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  let h = 0, s = 0; const l = (mx + mn) / 2;
+  if (mx !== mn) {
+    const d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return [h, s, l];
+}
+function hslToHex(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; } else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; } else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+  const to = (v) => ('0' + Math.round((v + m) * 255).toString(16)).slice(-2);
+  return '#' + to(r) + to(g) + to(b);
+}
+function shiftHue(hex, deg) {
+  const c = hexToRgb(hex), hsl = rgbToHsl(c[0], c[1], c[2]);
+  return hslToHex(hsl[0] + deg, Math.max(0.45, hsl[1]), Math.min(0.68, Math.max(0.5, hsl[2])));
+}
+function luminance(hex) {
+  const c = hexToRgb(hex);
+  return (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255;
+}
+
+function applyTheme() {
+  const t = state.theme, b = BGS[t.bg] || BGS.dark, st = document.documentElement.style;
+  th.accent = t.accent; th.accent2 = shiftHue(t.accent, 45);
+  st.setProperty('--bg', b.bg); st.setProperty('--card', b.card);
+  st.setProperty('--card2', b.card2); st.setProperty('--line', b.line);
+  st.setProperty('--accent', th.accent); st.setProperty('--accent2', th.accent2);
+  st.setProperty('--on-accent', luminance(t.accent) > 0.55 ? '#06101a' : '#ffffff');
+  st.setProperty('--r', t.radius + 'px');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', b.bg);
+  if (NATIVE && NATIVE.setBarColor) { try { NATIVE.setBarColor(b.bg); } catch (e) { /* bỏ qua */ } }
 }
 
 /* ================= Web Audio (chỉ cho âm thanh trong trang) ================= */
@@ -123,7 +228,7 @@ async function toggleNoise() {
   updateSpectrumLoop();
 }
 
-/* ================= Canvas helpers ================= */
+/* ================= Canvas ================= */
 function prep(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -136,7 +241,6 @@ function prep(canvas) {
   return { c, w, h };
 }
 
-/* ================= Đường cong EQ ================= */
 const CURVE_RANGE = 15;
 const curveFreqs = (() => {
   const n = 180, a = new Float32Array(n);
@@ -154,13 +258,13 @@ function drawCurve() {
 
   c.font = '10px system-ui'; c.textBaseline = 'middle';
   [-12, -6, 0, 6, 12].forEach((db) => {
-    c.strokeStyle = db === 0 ? '#3b4666' : '#222b42';
+    c.strokeStyle = db === 0 ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.08)';
     c.beginPath(); c.moveTo(padL, yOf(db)); c.lineTo(w - padR, yOf(db)); c.stroke();
     c.fillStyle = '#6f7a96'; c.textAlign = 'right'; c.fillText(String(db), padL - 4, yOf(db));
   });
   c.textAlign = 'center'; c.textBaseline = 'alphabetic';
   FREQS.forEach((f, i) => {
-    c.strokeStyle = '#1d2539';
+    c.strokeStyle = 'rgba(255,255,255,.05)';
     c.beginPath(); c.moveTo(xOf(f), padT); c.lineTo(xOf(f), padT + ph); c.stroke();
     if (i % 2 === 0 || w > 380) { c.fillStyle = '#6f7a96'; c.fillText(LABELS[i], xOf(f), h - 3); }
   });
@@ -173,14 +277,14 @@ function drawCurve() {
     for (let i = 0; i < total.length; i++) total[i] += 20 * Math.log10(mag[i] || 1e-6);
   });
 
-  const col = state.enabled ? '#37d6c4' : '#5d6785';
+  const col = state.enabled ? th.accent : '#5d6785';
   const grad = c.createLinearGradient(0, padT, 0, padT + ph);
-  grad.addColorStop(0, state.enabled ? 'rgba(55,214,196,.35)' : 'rgba(93,103,133,.25)');
-  grad.addColorStop(1, 'rgba(55,214,196,0)');
+  grad.addColorStop(0, state.enabled ? rgba(th.accent, 0.35) : 'rgba(93,103,133,.25)');
+  grad.addColorStop(1, rgba(th.accent, 0));
   c.beginPath();
   total.forEach((db, i) => {
     const x = xOf(curveFreqs[i]), y = yOf(Math.max(-CURVE_RANGE, Math.min(CURVE_RANGE, db)));
-    i ? c.lineTo(x, y) : c.moveTo(x, y);
+    if (i) c.lineTo(x, y); else c.moveTo(x, y);
   });
   c.strokeStyle = col; c.lineWidth = 2; c.stroke();
   c.lineTo(xOf(20000), yOf(0)); c.lineTo(xOf(20), yOf(0)); c.closePath();
@@ -212,7 +316,7 @@ function drawSpectrum() {
   analyser.getByteFrequencyData(data);
   const nyq = ctx.sampleRate / 2, n = 40, bw = w / n;
   const grad = c.createLinearGradient(0, h, 0, 0);
-  grad.addColorStop(0, '#6c8cff'); grad.addColorStop(1, '#37d6c4');
+  grad.addColorStop(0, th.accent2); grad.addColorStop(1, th.accent);
   c.fillStyle = grad;
   for (let k = 0; k < n; k++) {
     const f0 = 20 * Math.pow(1000, k / n), f1 = 20 * Math.pow(1000, (k + 1) / n);
@@ -225,7 +329,7 @@ function drawSpectrum() {
   }
 }
 
-/* ================= Giao diện thanh trượt ================= */
+/* ================= Thanh trượt ================= */
 const bandEls = [];
 function buildBands() {
   const root = $('bands');
@@ -279,15 +383,18 @@ function renderPresets() {
     const chip = document.createElement('span');
     chip.className = 'chip' + (sameGains(state.gains, gains) ? ' active' : '');
     const b = document.createElement('button');
-    b.type = 'button'; b.textContent = name;
-    b.style.cssText = 'background:none;border:0;color:inherit;font:inherit;padding:0';
+    b.type = 'button'; b.className = 'main'; b.textContent = name;
     b.addEventListener('click', () => { state.gains = gains.map(clampGain); changed(); });
     chip.appendChild(b);
     if (deletable) {
       const x = document.createElement('button');
       x.type = 'button'; x.className = 'x'; x.textContent = '✕'; x.title = 'Xoá cấu hình';
       x.addEventListener('click', () => {
-        if (confirm('Xoá cấu hình "' + name + '"?')) { delete state.custom[name]; saveState(); renderPresets(); }
+        if (confirm('Xoá cấu hình "' + name + '"?')) {
+          delete state.custom[name];
+          DEVICE_KEYS.forEach((k) => { if (state.autoMap[k] === name) state.autoMap[k] = null; });
+          saveState(); renderPresets(); fillAutoSelects(); scheduleSend();
+        }
       });
       chip.appendChild(x);
     }
@@ -306,49 +413,65 @@ function setGain(i, g) {
 function changed() {
   renderBands(); renderPresets();
   $('eqOn').checked = state.enabled; $('eqOnText').textContent = state.enabled ? 'BẬT' : 'TẮT';
-  $('headroom').checked = state.headroom;
   applyWebAudio(); drawCurve(); saveState(); scheduleSend(); renderLink();
 }
 
-/* ================= Kết nối app Android (WebSocket) ================= */
-const link = { state: 'offline', status: null, lastStatusAt: 0 };
+/* ================= Kết nối app Android ================= */
+const link = { state: 'offline', status: null, lastStatusAt: 0, first: false };
 let ws = null, retryTimer = 0, sendTimer = 0, retryDelay = 1500;
 
 function wsSend(obj) {
   if (ws && ws.readyState === 1) { ws.send(JSON.stringify(obj)); return true; }
   return false;
 }
-function scheduleSend() {
-  clearTimeout(sendTimer);
-  sendTimer = setTimeout(pushEq, 40);
+function scheduleSend() { clearTimeout(sendTimer); sendTimer = setTimeout(pushAll, 40); }
+function pushAll() { pushEq(); pushFx(); pushAuto(); }
+function pushEq() { wsSend({ type: 'setEq', enabled: state.enabled, gains: effectiveGains() }); }
+function pushFx() { wsSend({ type: 'fx', bass: state.bass, virt: state.virt, loud: state.loud }); }
+function pushAuto() {
+  const profiles = {};
+  DEVICE_KEYS.forEach((k) => {
+    const g = presetGains(state.autoMap[k]);
+    profiles[k] = g ? effFrom(g.map(clampGain)) : null;
+  });
+  wsSend({ type: 'auto', enabled: state.autoOn, profiles });
 }
-function pushEq() {
-  wsSend({ type: 'setEq', enabled: state.enabled, gains: effectiveGains() });
+function pushConfig() { wsSend({ type: 'config', mode: state.mode, engine: state.engine, autostart: state.autostart }); }
+
+/** Nếu app Android vừa tự đổi preset theo thiết bị (khi web đóng hoặc đang mở) thì web theo. */
+function handleAutoSeq(m) {
+  const a = m.auto;
+  if (!a || !a.seq || a.seq === state.lastAutoSeq) return;
+  state.lastAutoSeq = a.seq;
+  const g = a.applied ? presetGains(state.autoMap[a.applied]) : null;
+  if (g) { state.gains = g.map(clampGain); changed(); } else { saveState(); }
 }
-function pushConfig() {
-  wsSend({ type: 'config', mode: state.mode, engine: state.engine });
-}
+
 function connect() {
   if (ws && ws.readyState <= 1) return;
   clearTimeout(retryTimer);
   link.state = 'connecting'; renderLink();
-  try { ws = new WebSocket(WS_URL); } catch (e) { return failed(); }
+  try { ws = new WebSocket(WS_URL); } catch (e) { failed(); return; }
   ws.onopen = () => {
-    link.state = 'online'; link.status = null; retryDelay = 1500;
-    wsSend({ type: 'hello', client: 'q14-web', protocol: 1 });
-    pushConfig(); pushEq(); wsSend({ type: 'getStatus' });
+    link.state = 'online'; link.status = null; link.first = true; retryDelay = 1500;
+    wsSend({ type: 'hello', client: 'q14-web', protocol: 2 });
+    pushConfig(); wsSend({ type: 'getStatus' });
     renderLink();
   };
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-    if (m && m.type === 'status') { link.status = m; link.lastStatusAt = Date.now(); renderLink(); renderDiag(); }
+    if (!m || m.type !== 'status') return;
+    link.status = m; link.lastStatusAt = Date.now();
+    handleAutoSeq(m);
+    if (link.first) { link.first = false; pushAll(); }
+    renderLink(); renderDiag(); renderFxStatus();
   };
   ws.onclose = failed;
   ws.onerror = () => { /* onclose sẽ xử lý */ };
 }
 function failed() {
   link.state = 'offline'; link.status = null; ws = null;
-  renderLink(); renderDiag();
+  renderLink(); renderDiag(); renderFxStatus();
   clearTimeout(retryTimer);
   retryTimer = setTimeout(connect, retryDelay);
   retryDelay = Math.min(retryDelay * 1.5, 10000);
@@ -367,10 +490,10 @@ function renderLink() {
 
   if (link.state !== 'online') {
     pill.className = 'pill offline';
-    pill.textContent = link.state === 'connecting' ? 'Đang kết nối…' : 'Chưa kết nối app';
+    pill.textContent = link.state === 'connecting' ? 'Đang kết nối…' : 'Chưa kết nối';
     b.className = 'banner warn';
-    add('Chưa kết nối app Android EQo. EQ hiện CHỈ áp dụng cho âm thanh phát trong trang này (mục Kiểm thử), chưa tác động lên TikTok, YouTube, Roblox hay ứng dụng khác.');
-    add('Mở app EQo trên điện thoại và bấm "Bật dịch vụ EQ". Nếu Chrome hỏi quyền truy cập thiết bị trong mạng cục bộ, hãy chọn Cho phép.');
+    add('Chưa kết nối với phần Android của EQo. EQ hiện CHỈ áp dụng cho âm thanh phát trong trang này (mục Kiểm thử), chưa tác động lên TikTok, YouTube, Roblox hay ứng dụng khác.');
+    add('Mở app EQo trên điện thoại để dịch vụ EQ tự bật. Nếu Chrome hỏi quyền truy cập thiết bị trong mạng cục bộ, hãy chọn Cho phép.');
     if (!embedded) {
       const p = add('Nếu vẫn không kết nối được, mở bản nhúng trong app: ');
       const a = document.createElement('a'); a.href = EMBED_URL; a.textContent = EMBED_URL; p.appendChild(a);
@@ -392,10 +515,10 @@ function renderLink() {
   if (!anyOk) {
     pill.className = 'pill err'; pill.textContent = 'Chưa áp dụng';
     b.className = 'banner err';
-    add('App đã kết nối nhưng CHƯA tạo được hiệu ứng EQ hệ thống, nên EQ chưa áp dụng ngoài website.');
+    add('App đã kết nối nhưng CHƯA tạo được hiệu ứng EQ hệ thống, nên EQ chưa áp dụng ngoài app.');
     if (g.state === 'error' && g.message) add('Lý do (toàn cục): ' + g.message);
     if (s.mode !== 'global' && sess.length === 0) add('Chưa có ứng dụng nào mở phiên hiệu ứng âm thanh (nhiều ứng dụng như TikTok, Roblox có thể không gửi tín hiệu này).');
-    add('Thử đổi "Phạm vi áp dụng" hoặc "Bộ xử lý" trong mục Nâng cao.');
+    add('Thử đổi "Phạm vi áp dụng" hoặc "Bộ xử lý" trong Cài đặt → Hệ thống.');
     return;
   }
   pill.className = 'pill ok'; pill.textContent = 'Đã gửi tới app';
@@ -404,8 +527,27 @@ function renderLink() {
   if (g.state === 'ok') parts.push('toàn cục (' + g.kind + ')');
   if (okSess.length) parts.push(okSess.length + ' phiên ứng dụng');
   add('App đã nhận EQ và khởi tạo hiệu ứng: ' + parts.join(' + ') + '.');
-  add('Lưu ý: việc tạo hiệu ứng thành công chưa chứng minh âm thanh của ứng dụng khác thật sự bị tác động. Hãy nghe thử: phát YouTube rồi bật/tắt EQ hoặc dùng preset Bass Moderate.');
+  add('Lưu ý: tạo hiệu ứng thành công chưa chứng minh âm thanh của ứng dụng khác thật sự bị tác động. Hãy nghe thử bằng cách bật/tắt EQ khi phát nhạc.');
   if (!state.enabled) add('EQ đang TẮT: app nhận đường phẳng (0 dB).');
+}
+
+function fxLine(name, f) {
+  if (!f) return name + ': ?';
+  return name + ': ' + (f.ok ? 'hoạt động' : 'không dùng được (' + (f.message || '?') + ')');
+}
+function renderFxStatus() {
+  const el = $('fxStatus'), s = link.status;
+  if (link.state !== 'online' || !s || !s.fx) {
+    el.textContent = 'Các hiệu ứng này do Android xử lý và máy có thể không hỗ trợ. Trạng thái sẽ hiện ở đây khi đã kết nối.';
+  } else {
+    el.textContent = fxLine('Bass Boost', s.fx.bass) + ' · ' + fxLine('Vòm', s.fx.virt) + ' · ' + fxLine('Loudness', s.fx.loud);
+  }
+  const an = $('autoNow');
+  if (link.state === 'online' && s && s.auto && s.auto.key) {
+    an.textContent = 'Đang phát qua: ' + (DEVICE_LABEL[s.auto.key] || s.auto.key) + '. Preset đổi khi bạn cắm/ngắt thiết bị.';
+  } else {
+    an.textContent = 'Chưa kết nối app.';
+  }
 }
 
 function renderDiag() {
@@ -421,31 +563,139 @@ function renderDiag() {
   const sess = s.sessions || [];
   L.push('Phiên ứng dụng thấy được: ' + sess.length);
   sess.forEach((x) => L.push('  • ' + (x.pkg || '?') + ' #' + x.id + ' → ' + (x.ok ? 'ok [' + x.kind + ']' : 'lỗi: ' + (x.message || '?'))));
+  if (s.fx) L.push(fxLine('Bass Boost', s.fx.bass) + '\n' + fxLine('Vòm', s.fx.virt) + '\n' + fxLine('Loudness', s.fx.loud));
   if (Array.isArray(d.effects)) L.push('Hiệu ứng có trên máy: ' + (d.effects.join('; ') || '(không)'));
   el.textContent = L.join('\n');
 }
 
-/* ================= Khởi tạo & sự kiện ================= */
+/* ================= Cài đặt ================= */
+function openSheet() {
+  if (!$('sheet').hidden) return;
+  $('sheet').hidden = false;
+  document.body.style.overflow = 'hidden';
+  try { history.pushState({ sheet: 1 }, ''); } catch (e) { /* bỏ qua */ }
+}
+function hideSheet() {
+  $('sheet').hidden = true;
+  document.body.style.overflow = '';
+}
+
+function segSync(id, value) {
+  document.querySelectorAll('#' + id + ' button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.v === String(value));
+  });
+}
+function buildSwatches() {
+  const root = $('swatches'); root.replaceChildren();
+  SWATCHES.forEach((c) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'sw'; b.style.background = c; b.dataset.c = c;
+    b.setAttribute('aria-label', 'Màu ' + c);
+    b.addEventListener('click', () => setAccent(c));
+    root.appendChild(b);
+  });
+  const inp = document.createElement('input');
+  inp.type = 'color'; inp.id = 'accentCustom'; inp.value = state.theme.accent; inp.title = 'Chọn màu khác';
+  inp.addEventListener('input', () => setAccent(inp.value));
+  root.appendChild(inp);
+}
+function setAccent(c) {
+  state.theme.accent = c.toLowerCase();
+  applyTheme(); syncTheme(); drawCurve(); saveState();
+}
+function syncTheme() {
+  document.querySelectorAll('#swatches .sw').forEach((b) => {
+    b.classList.toggle('on', b.dataset.c === state.theme.accent);
+  });
+  const inp = $('accentCustom'); if (inp) inp.value = state.theme.accent;
+  segSync('bgSeg', state.theme.bg); segSync('radSeg', state.theme.radius);
+}
+
+function fillAutoSelects() {
+  const names = Object.keys(allPresets());
+  DEVICE_KEYS.forEach((k) => {
+    const sel = $(SELECT_ID[k]); sel.replaceChildren();
+    const o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Giữ nguyên'; sel.appendChild(o0);
+    names.forEach((n) => { const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
+    if (state.autoMap[k] && !names.includes(state.autoMap[k])) state.autoMap[k] = null;
+    sel.value = state.autoMap[k] || '';
+  });
+}
+
+function bindRange(id, key, fmtFn) {
+  const el = $(id), v = $(id + 'V');
+  el.value = state[key]; v.textContent = fmtFn(state[key]);
+  el.addEventListener('input', () => { state[key] = Number(el.value); v.textContent = fmtFn(state[key]); changed(); });
+}
+
+function bindSettings() {
+  $('btnSettings').addEventListener('click', openSheet);
+  $('btnCloseSheet').addEventListener('click', () => {
+    if (history.state && history.state.sheet) history.back(); else hideSheet();
+  });
+  window.addEventListener('popstate', hideSheet);
+
+  buildSwatches();
+  document.querySelectorAll('#bgSeg button').forEach((b) => b.addEventListener('click', () => {
+    state.theme.bg = b.dataset.v; applyTheme(); syncTheme(); saveState();
+  }));
+  document.querySelectorAll('#radSeg button').forEach((b) => b.addEventListener('click', () => {
+    state.theme.radius = Number(b.dataset.v); applyTheme(); syncTheme(); saveState();
+  }));
+
+  bindRange('preamp', 'preamp', (v) => fmt(v) + ' dB');
+  bindRange('bass', 'bass', (v) => v + '%');
+  bindRange('virt', 'virt', (v) => v + '%');
+  bindRange('loud', 'loud', (v) => v.toFixed(1) + ' dB');
+  $('headroom').checked = state.headroom;
+  $('headroom').addEventListener('change', (e) => { state.headroom = e.target.checked; changed(); });
+
+  $('autoOn').checked = state.autoOn;
+  $('autoOn').addEventListener('change', (e) => { state.autoOn = e.target.checked; changed(); });
+  fillAutoSelects();
+  DEVICE_KEYS.forEach((k) => {
+    $(SELECT_ID[k]).addEventListener('change', (e) => {
+      state.autoMap[k] = e.target.value || null;
+      const st = link.status, g = presetGains(state.autoMap[k]);
+      if (state.autoOn && g && st && st.auto && st.auto.key === k) state.gains = g.map(clampGain);
+      changed();
+    });
+  });
+
+  $('autostart').checked = state.autostart;
+  $('autostart').addEventListener('change', (e) => { state.autostart = e.target.checked; saveState(); pushConfig(); });
+  $('selMode').value = state.mode; $('selEngine').value = state.engine;
+  $('selMode').addEventListener('change', (e) => { state.mode = e.target.value; saveState(); pushConfig(); pushEq(); });
+  $('selEngine').addEventListener('change', (e) => { state.engine = e.target.value; saveState(); pushConfig(); pushEq(); });
+
+  if (NATIVE) {
+    $('nativeBtns').hidden = false;
+    $('btnBattery').addEventListener('click', () => { try { NATIVE.batterySettings(); } catch (e) { /* bỏ qua */ } });
+    $('btnExit').addEventListener('click', () => {
+      if (confirm('Tắt EQ và thoát? Âm thanh sẽ trở về nguyên bản.')) { try { NATIVE.stopAndExit(); } catch (e) { /* bỏ qua */ } }
+    });
+  }
+  syncTheme();
+}
+
+/* ================= Khởi tạo ================= */
 function init() {
   loadState();
+  applyTheme();
   buildBands();
   initAudio();
 
   $('eqOn').addEventListener('change', (e) => { state.enabled = e.target.checked; changed(); });
-  $('headroom').addEventListener('change', (e) => { state.headroom = e.target.checked; changed(); });
   $('btnReset').addEventListener('click', () => { state.gains = Array(10).fill(0); changed(); });
   $('btnSave').addEventListener('click', () => {
     const name = (prompt('Tên cấu hình:') || '').trim().slice(0, 24);
     if (!name) return;
     if (PRESETS[name]) { alert('Tên này trùng preset có sẵn.'); return; }
-    state.custom[name] = state.gains.slice(); saveState(); renderPresets();
+    state.custom[name] = state.gains.slice(); saveState(); renderPresets(); fillAutoSelects();
   });
   $('btnNoise').addEventListener('click', toggleNoise);
   $('linkPill').addEventListener('click', () => { retryDelay = 1500; if (link.state === 'offline') connect(); });
-
-  $('selMode').value = state.mode; $('selEngine').value = state.engine;
-  $('selMode').addEventListener('change', (e) => { state.mode = e.target.value; saveState(); pushConfig(); pushEq(); });
-  $('selEngine').addEventListener('change', (e) => { state.engine = e.target.value; saveState(); pushConfig(); pushEq(); });
+  bindSettings();
 
   const player = $('player');
   $('file').addEventListener('change', (e) => {
@@ -459,7 +709,7 @@ function init() {
   ['pause', 'ended'].forEach((ev) => player.addEventListener(ev, updateSpectrumLoop));
 
   window.addEventListener('resize', () => { drawCurve(); clearSpectrum(); });
-  changed(); clearSpectrum();
+  changed(); clearSpectrum(); renderFxStatus();
   connect();
 }
 init();

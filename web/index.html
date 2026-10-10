@@ -10,7 +10,10 @@
 <body>
 <header class="top">
   <div class="brand"><span class="logo">EQo</span><span class="brand-text">Audio Lab</span></div>
-  <button id="linkPill" class="pill offline" type="button" title="Bấm để kết nối lại">Chưa kết nối app</button>
+  <div class="top-r">
+    <button id="linkPill" class="pill offline" type="button" title="Bấm để kết nối lại">Chưa kết nối</button>
+    <button id="btnSettings" class="btn small" type="button">Cài đặt</button>
+  </div>
 </header>
 
 <main>
@@ -28,21 +31,22 @@
 
     <canvas id="curve" class="curve" aria-label="Đường cong EQ"></canvas>
     <div id="bands" class="bands"></div>
-    <p class="hint">Kéo thanh trượt để chỉnh (bước 0,5 dB). Chạm đúp một băng để về 0 dB.</p>
+    <p class="hint">Kéo để chỉnh (bước 0,5 dB). Chạm đúp một băng để về 0 dB.</p>
 
     <div class="row">
       <button id="btnReset" class="btn" type="button">Reset</button>
       <button id="btnSave" class="btn primary" type="button">Lưu cấu hình</button>
     </div>
-    <label class="check"><input type="checkbox" id="headroom" checked> Tự giảm mức tổng khi có băng tăng (tránh vỡ tiếng)</label>
+  </section>
 
-    <h3>Preset</h3>
+  <section class="card">
+    <h2>Preset</h2>
     <div class="chips" id="presets"></div>
   </section>
 
   <section class="card">
-    <h2>Kiểm thử trong website</h2>
-    <p class="hint">Phần này chỉ xử lý âm thanh phát <b>trong trang này</b> (Web Audio API). Dùng để nghe thử đường cong EQ.</p>
+    <h2>Kiểm thử trong app</h2>
+    <p class="hint">Phần này chỉ xử lý âm thanh phát <b>ngay trong trang này</b> (Web Audio API). Nếu EQ hệ thống đang chạy, nhạc ở đây có thể bị chỉnh hai lần.</p>
     <input type="file" id="file" accept="audio/*,.mp3,.wav" class="file">
     <audio id="player" controls preload="metadata"></audio>
     <div class="row">
@@ -50,39 +54,94 @@
     </div>
     <canvas id="spectrum" class="spectrum" aria-label="Spectrum analyzer"></canvas>
   </section>
-
-  <details class="card">
-    <summary>Nâng cao: app Android &amp; chẩn đoán</summary>
-    <div class="adv">
-      <label>Phạm vi áp dụng
-        <select id="selMode">
-          <option value="global">Toàn cục (session 0)</option>
-          <option value="sessions">Theo phiên của từng ứng dụng</option>
-          <option value="both">Cả hai (có thể bị cộng dồn EQ)</option>
-        </select>
-      </label>
-      <label>Bộ xử lý
-        <select id="selEngine">
-          <option value="auto">Tự chọn</option>
-          <option value="dynamics">DynamicsProcessing (10 băng)</option>
-          <option value="equalizer">Equalizer (số băng theo phần cứng)</option>
-        </select>
-      </label>
-      <pre id="diag" class="diag">Chưa có dữ liệu.</pre>
-    </div>
-  </details>
-
-  <details class="card">
-    <summary>Giới hạn cần biết</summary>
-    <div class="adv">
-      <ul>
-        <li>Trình duyệt không thể xử lý âm thanh của ứng dụng khác. Chỉ app Android mới can thiệp được.</li>
-        <li>Android không đảm bảo hiệu ứng toàn hệ thống hoạt động trên mọi máy; phải tự nghe để xác nhận.</li>
-        <li>Đường cong và spectrum ở trên mô phỏng bộ lọc của trình duyệt; bộ EQ trên Android có thể khác nhẹ.</li>
-      </ul>
-    </div>
-  </details>
 </main>
+
+<!-- ============ Cài đặt ============ -->
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-head">
+    <h2>Cài đặt</h2>
+    <button id="btnCloseSheet" class="btn small" type="button">Đóng</button>
+  </div>
+  <div class="sheet-body">
+
+    <section class="card">
+      <h2>Giao diện</h2>
+      <div class="lbl">Màu chủ đạo</div>
+      <div class="swatches" id="swatches"></div>
+      <div class="lbl">Màu nền</div>
+      <div class="seg" id="bgSeg">
+        <button type="button" data-v="dark">Tối</button>
+        <button type="button" data-v="amoled">AMOLED</button>
+        <button type="button" data-v="midnight">Xanh đêm</button>
+      </div>
+      <div class="lbl">Độ bo góc nút</div>
+      <div class="seg" id="radSeg">
+        <button type="button" data-v="4">Vuông</button>
+        <button type="button" data-v="10">Vừa</button>
+        <button type="button" data-v="16">Tròn</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Âm thanh</h2>
+      <div class="rrow"><span>Preamp</span><b id="preampV">0 dB</b></div>
+      <input type="range" id="preamp" min="-12" max="12" step="0.5">
+      <label class="check"><input type="checkbox" id="headroom"> Tự giảm mức tổng khi có băng tăng (tránh vỡ tiếng)</label>
+
+      <h3>Hiệu ứng của Android</h3>
+      <div class="rrow"><span>Bass Boost</span><b id="bassV">0%</b></div>
+      <input type="range" id="bass" min="0" max="100" step="5">
+      <div class="rrow"><span>Âm thanh vòm (Virtualizer)</span><b id="virtV">0%</b></div>
+      <input type="range" id="virt" min="0" max="100" step="5">
+      <div class="rrow"><span>Tăng âm lượng (Loudness)</span><b id="loudV">0 dB</b></div>
+      <input type="range" id="loud" min="0" max="12" step="0.5">
+      <p class="hint" id="fxStatus">Các hiệu ứng này do Android xử lý và máy có thể không hỗ trợ. Trạng thái sẽ hiện ở đây khi đã kết nối.</p>
+    </section>
+
+    <section class="card">
+      <h2>Auto EQ theo thiết bị</h2>
+      <label class="check"><input type="checkbox" id="autoOn"> Tự đổi preset khi cắm/ngắt tai nghe hoặc Bluetooth</label>
+      <div class="lbl">Loa ngoài</div><select id="autoSpeaker"></select>
+      <div class="lbl">Tai nghe có dây</div><select id="autoWired"></select>
+      <div class="lbl">Bluetooth</div><select id="autoBt"></select>
+      <p class="hint" id="autoNow">Chưa kết nối app.</p>
+    </section>
+
+    <section class="card">
+      <h2>Hệ thống</h2>
+      <label class="check"><input type="checkbox" id="autostart"> Tự bật EQ khi khởi động máy</label>
+      <div class="lbl">Phạm vi áp dụng</div>
+      <select id="selMode">
+        <option value="global">Toàn cục (session 0)</option>
+        <option value="sessions">Theo phiên của từng ứng dụng</option>
+        <option value="both">Cả hai (có thể bị cộng dồn EQ)</option>
+      </select>
+      <div class="lbl">Bộ xử lý</div>
+      <select id="selEngine">
+        <option value="auto">Tự chọn</option>
+        <option value="dynamics">DynamicsProcessing (10 băng)</option>
+        <option value="equalizer">Equalizer (số băng theo phần cứng)</option>
+      </select>
+      <div class="row" id="nativeBtns" hidden>
+        <button id="btnBattery" class="btn" type="button">Cài đặt tối ưu pin</button>
+        <button id="btnExit" class="btn danger" type="button">Tắt EQ và thoát</button>
+      </div>
+      <pre id="diag" class="diag">Chưa có dữ liệu.</pre>
+    </section>
+
+    <details class="card">
+      <summary>Giới hạn cần biết</summary>
+      <div class="adv">
+        <ul>
+          <li>Trình duyệt không xử lý được âm thanh của ứng dụng khác; chỉ phần Android của EQo làm được.</li>
+          <li>Android không đảm bảo hiệu ứng hoạt động trên mọi máy: hãy nghe thử để xác nhận.</li>
+          <li>Đường cong và spectrum mô phỏng bộ lọc của trình duyệt; bộ EQ của máy có thể ít băng hơn.</li>
+          <li>Auto EQ hiện chọn preset theo thiết bị phát (loa, tai nghe, Bluetooth), chưa phân tích bài nhạc.</li>
+        </ul>
+      </div>
+    </details>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>

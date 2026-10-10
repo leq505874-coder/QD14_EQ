@@ -6,6 +6,8 @@ Website EQ 10 băng (dark mode, tối ưu điện thoại) + app Android cầu n
 
 > **Từ v1.1:** mở app EQo là thấy ngay giao diện EQ (WebView tải bản web nhúng tại `127.0.0.1:8766`), dịch vụ tự bật và chạy nền khi thoát. Bản web trên GitHub Pages vẫn dùng được như phương án phụ.
 
+> **Từ v1.2:** thêm 15 preset, trang **Cài đặt** (đổi màu giao diện, độ bo góc, Preamp, Bass Boost, Âm thanh vòm, Loudness, Auto EQ theo thiết bị, tự bật khi khởi động máy). App lưu trạng thái EQ nên vẫn áp dụng sau khi khởi động lại. Các hiệu ứng Bass Boost/Vòm/Loudness do Android xử lý và có thể bị máy từ chối; trang Cài đặt hiện trạng thái thật. Auto EQ chọn preset theo thiết bị phát (loa ngoài, tai nghe có dây, Bluetooth), chưa phân tích nội dung bài nhạc.
+
 ## 1. Kiến trúc
 
 ```
@@ -88,7 +90,9 @@ q14-audio-lab/
 Web → app:
 ```json
 {"type":"hello","client":"q14-web","protocol":1}
-{"type":"config","mode":"global|sessions|both","engine":"auto|equalizer|dynamics"}
+{"type":"config","mode":"global|sessions|both","engine":"auto|equalizer|dynamics","autostart":false}
+{"type":"fx","bass":0,"virt":0,"loud":0}                          // bass/virt 0-100 %, loud 0-12 dB
+{"type":"auto","enabled":true,"profiles":{"speaker":null,"wired":[10 số],"bluetooth":null}}
 {"type":"setEq","enabled":true,"gains":[0,0,0,0,0,0,0,0,0,0]}   // 10 số dB, đã trừ headroom
 {"type":"getStatus"}
 ```

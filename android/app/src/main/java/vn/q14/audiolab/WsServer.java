@@ -73,7 +73,9 @@ public final class WsServer extends WebSocketServer {
             JSONObject m = new JSONObject(message);
             String type = m.optString("type", "");
             if (type.equals("config")) {
-                engine.configure(m.optString("mode", null), m.optString("engine", null));
+                Boolean autostart = null;
+                if (m.has("autostart")) autostart = Boolean.valueOf(m.optBoolean("autostart"));
+                engine.configure(m.optString("mode", null), m.optString("engine", null), autostart);
             } else if (type.equals("setEq")) {
                 JSONArray a = m.optJSONArray("gains");
                 if (a != null && a.length() == 10) {
@@ -81,6 +83,10 @@ public final class WsServer extends WebSocketServer {
                     for (int i = 0; i < 10; i++) g[i] = (float) a.optDouble(i, 0.0);
                     engine.setEq(m.optBoolean("enabled", false), g);
                 }
+            } else if (type.equals("fx")) {
+                engine.setFx(m.optInt("bass", 0), m.optInt("virt", 0), (float) m.optDouble("loud", 0.0));
+            } else if (type.equals("auto")) {
+                engine.setAuto(m.optBoolean("enabled", false), m.optJSONObject("profiles"));
             }
             // hello / getStatus: chỉ cần trả trạng thái
             conn.send(engine.status().toString());
