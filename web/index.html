@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<title>Q14 Audio Lab</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">Q14</span><span class="brand-text">Audio Lab</span></div>
+  <button id="linkPill" class="pill offline" type="button" title="Bấm để kết nối lại">Chưa kết nối app</button>
+</header>
+
+<main>
+  <section id="banner" class="banner warn" role="status" aria-live="polite"></section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Equalizer 10 băng</h2>
+      <label class="switch" title="Bật/tắt EQ">
+        <input type="checkbox" id="eqOn" checked>
+        <span class="track-sw"><span class="knob"></span></span>
+        <span class="sw-text" id="eqOnText">BẬT</span>
+      </label>
+    </div>
+
+    <canvas id="curve" class="curve" aria-label="Đường cong EQ"></canvas>
+    <div id="bands" class="bands"></div>
+    <p class="hint">Kéo thanh trượt để chỉnh (bước 0,5 dB). Chạm đúp một băng để về 0 dB.</p>
+
+    <div class="row">
+      <button id="btnReset" class="btn" type="button">Reset</button>
+      <button id="btnSave" class="btn primary" type="button">Lưu cấu hình</button>
+    </div>
+    <label class="check"><input type="checkbox" id="headroom" checked> Tự giảm mức tổng khi có băng tăng (tránh vỡ tiếng)</label>
+
+    <h3>Preset</h3>
+    <div class="chips" id="presets"></div>
+  </section>
+
+  <section class="card">
+    <h2>Kiểm thử trong website</h2>
+    <p class="hint">Phần này chỉ xử lý âm thanh phát <b>trong trang này</b> (Web Audio API). Dùng để nghe thử đường cong EQ.</p>
+    <input type="file" id="file" accept="audio/*,.mp3,.wav" class="file">
+    <audio id="player" controls preload="metadata"></audio>
+    <div class="row">
+      <button id="btnNoise" class="btn" type="button">Phát nhiễu hồng</button>
+    </div>
+    <canvas id="spectrum" class="spectrum" aria-label="Spectrum analyzer"></canvas>
+  </section>
+
+  <details class="card">
+    <summary>Nâng cao: app Android &amp; chẩn đoán</summary>
+    <div class="adv">
+      <label>Phạm vi áp dụng
+        <select id="selMode">
+          <option value="global">Toàn cục (session 0)</option>
+          <option value="sessions">Theo phiên của từng ứng dụng</option>
+          <option value="both">Cả hai (có thể bị cộng dồn EQ)</option>
+        </select>
+      </label>
+      <label>Bộ xử lý
+        <select id="selEngine">
+          <option value="auto">Tự chọn</option>
+          <option value="dynamics">DynamicsProcessing (10 băng)</option>
+          <option value="equalizer">Equalizer (số băng theo phần cứng)</option>
+        </select>
+      </label>
+      <pre id="diag" class="diag">Chưa có dữ liệu.</pre>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Giới hạn cần biết</summary>
+    <div class="adv">
+      <ul>
+        <li>Trình duyệt không thể xử lý âm thanh của ứng dụng khác. Chỉ app Android mới can thiệp được.</li>
+        <li>Android không đảm bảo hiệu ứng toàn hệ thống hoạt động trên mọi máy; phải tự nghe để xác nhận.</li>
+        <li>Đường cong và spectrum ở trên mô phỏng bộ lọc của trình duyệt; bộ EQ trên Android có thể khác nhẹ.</li>
+      </ul>
+    </div>
+  </details>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

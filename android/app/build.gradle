@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'vn.q14.audiolab'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'vn.q14.audiolab'
+        minSdk 28          // DynamicsProcessing cần API 28; OPPO A53 chạy Android 12 (API 31)
+        targetSdk 31       // khớp Android 12 của máy mục tiêu
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Nhúng nguyên thư mục web/ của repo vào assets để app tự phục vụ bản website dự phòng.
+    sourceSets {
+        main {
+            assets.srcDirs = ['src/main/assets', '../../web']
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += ['META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/DEPENDENCIES']
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'org.java-websocket:Java-WebSocket:1.5.7'
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+}
