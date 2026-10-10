@@ -31,12 +31,12 @@ public class EqService extends Service {
         if (running) return START_STICKY;
         lastError = null;
 
-        NotificationChannel ch = new NotificationChannel(CHANNEL, "Q14 EQ", NotificationManager.IMPORTANCE_LOW);
+        NotificationChannel ch = new NotificationChannel(CHANNEL, "EQo", NotificationManager.IMPORTANCE_LOW);
         getSystemService(NotificationManager.class).createNotificationChannel(ch);
         PendingIntent pi = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         Notification n = new Notification.Builder(this, CHANNEL)
-                .setContentTitle("Q14 Audio Lab đang chạy")
+                .setContentTitle("EQo đang chạy")
                 .setContentText("Nhận thông số EQ từ website qua 127.0.0.1")
                 .setSmallIcon(android.R.drawable.stat_sys_headset)
                 .setContentIntent(pi)

@@ -1,14 +1,16 @@
-# Q14 Audio Lab
+# EQo (Q14 Audio Lab)
 
 Website EQ 10 băng (dark mode, tối ưu điện thoại) + app Android cầu nối để thử áp dụng EQ lên âm thanh hệ thống.
 
 > **Trạng thái kiểm chứng:** website đã kiểm tra cú pháp JavaScript. App Android **chưa được build hay chạy trên OPPO A53** — mã được viết theo tài liệu Android API. Việc EQ có thật sự tác động lên TikTok/YouTube/Roblox hay không **phải do bạn nghe thử** (xem mục 6).
 
+> **Từ v1.1:** mở app EQo là thấy ngay giao diện EQ (WebView tải bản web nhúng tại `127.0.0.1:8766`), dịch vụ tự bật và chạy nền khi thoát. Bản web trên GitHub Pages vẫn dùng được như phương án phụ.
+
 ## 1. Kiến trúc
 
 ```
 ┌───────────────────────────┐   ws://127.0.0.1:8765    ┌────────────────────────────┐
-│ Website (GitHub Pages)    │ ───────────────────────► │ App Android Q14 (service)  │
+│ Website (GitHub Pages)    │ ───────────────────────► │ App Android EQo (service)  │
 │ HTML/CSS/JS, Web Audio    │  JSON: setEq / config    │ AudioEffect:               │
 │ - 10 slider, đường cong   │ ◄─────────────────────── │  Equalizer / Dynamics-     │
 │ - preset, lưu cấu hình    │  JSON: status            │  Processing                │
@@ -66,10 +68,10 @@ q14-audio-lab/
 1. Tab **Actions → Build Android APK → Run workflow** (hoặc push thay đổi trong `android/`/`web/`).
 2. Khi xong, mở lần chạy đó → **Artifacts → q14-audio-lab-apk** → tải về, giải nén lấy `app-debug.apk`.
 3. Chép vào OPPO A53, mở file, cho phép **cài đặt từ nguồn không rõ** nếu được hỏi.
-4. Mở **Q14 Audio Lab** → **Bật dịch vụ EQ**.
+4. Mở **EQo** → **Bật dịch vụ EQ**.
 5. Cấu hình ColorOS để không bị tắt nền:
-   - Cài đặt → Pin → Tối ưu hoá pin → Q14 Audio Lab → **Không hạn chế**.
-   - Cài đặt → Quản lý ứng dụng → Q14 Audio Lab → Sử dụng pin → bật **Cho phép hoạt động nền** và **Tự khởi chạy**.
+   - Cài đặt → Pin → Tối ưu hoá pin → EQo → **Không hạn chế**.
+   - Cài đặt → Quản lý ứng dụng → EQo → Sử dụng pin → bật **Cho phép hoạt động nền** và **Tự khởi chạy**.
    - Trong màn hình đa nhiệm, kéo thẻ app xuống để **khoá** (biểu tượng khoá).
 6. Mở website (GitHub Pages) bằng Chrome. Thanh trạng thái trên cùng phải chuyển sang "Đã gửi tới app". Nếu không, mở `http://127.0.0.1:8766/` (bản nhúng trong app).
 

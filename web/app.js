@@ -369,8 +369,8 @@ function renderLink() {
     pill.className = 'pill offline';
     pill.textContent = link.state === 'connecting' ? 'Đang kết nối…' : 'Chưa kết nối app';
     b.className = 'banner warn';
-    add('Chưa kết nối app Android Q14. EQ hiện CHỈ áp dụng cho âm thanh phát trong trang này (mục Kiểm thử), chưa tác động lên TikTok, YouTube, Roblox hay ứng dụng khác.');
-    add('Mở app Q14 Audio Lab trên điện thoại và bấm "Bật dịch vụ EQ". Nếu Chrome hỏi quyền truy cập thiết bị trong mạng cục bộ, hãy chọn Cho phép.');
+    add('Chưa kết nối app Android EQo. EQ hiện CHỈ áp dụng cho âm thanh phát trong trang này (mục Kiểm thử), chưa tác động lên TikTok, YouTube, Roblox hay ứng dụng khác.');
+    add('Mở app EQo trên điện thoại và bấm "Bật dịch vụ EQ". Nếu Chrome hỏi quyền truy cập thiết bị trong mạng cục bộ, hãy chọn Cho phép.');
     if (!embedded) {
       const p = add('Nếu vẫn không kết nối được, mở bản nhúng trong app: ');
       const a = document.createElement('a'); a.href = EMBED_URL; a.textContent = EMBED_URL; p.appendChild(a);

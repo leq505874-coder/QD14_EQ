@@ -1,6 +1,7 @@
 package vn.q14.audiolab;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
@@ -8,118 +9,171 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
-import android.view.Gravity;
 import android.view.View;
+import android.webkit.JsPromptResult;
+import android.webkit.JsResult;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
-import android.widget.Toast;
 
-/** Màn hình điều khiển tối giản: bật/tắt dịch vụ cầu nối. Giao diện EQ chính nằm trên website. */
+/**
+ * EQo: mở app là thấy ngay giao diện EQ (trang web nhúng trong assets, phục vụ bởi EqService
+ * tại 127.0.0.1:8766). Dịch vụ tự bật khi mở app và vẫn chạy nền khi thoát.
+ */
 public class MainActivity extends Activity {
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private TextView status;
-    private Button toggle;
+    private static final String URL = "http://127.0.0.1:8766/";
+    private static final int REQ_FILE = 1;
 
-    private final Runnable tick = new Runnable() {
-        @Override
-        public void run() {
-            refresh();
-            handler.postDelayed(this, 1000);
-        }
-    };
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private WebView web;
+    private ValueCallback<Uri[]> fileCb;
+    private int retries = 0;
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
-    private TextView text(String s, int sp, int color) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(sp);
-        t.setTextColor(color);
-        t.setPadding(0, dp(6), 0, dp(6));
-        return t;
-    }
-
-    private Button button(String s, View.OnClickListener l) {
+    private Button barButton(String s, View.OnClickListener l) {
         Button b = new Button(this);
         b.setText(s);
         b.setAllCaps(false);
+        b.setTextSize(12);
         b.setOnClickListener(l);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        p.topMargin = dp(8);
-        b.setLayoutParams(p);
+        b.setLayoutParams(new LinearLayout.LayoutParams(0, dp(44), 1f));
         return b;
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (!EqService.running) startForegroundService(new Intent(this, EqService.class));
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(28), dp(20), dp(20));
         root.setBackgroundColor(Color.parseColor("#0b0e14"));
-        root.setGravity(Gravity.TOP);
 
-        root.addView(text("Q14 Audio Lab", 24, Color.parseColor("#37d6c4")));
-        root.addView(text("Cầu nối Android. Giao diện EQ nằm trên website; app này chỉ nhận thông số và áp dụng hiệu ứng âm thanh.",
-                14, Color.parseColor("#8b95ad")));
+        web = new WebView(this);
+        web.setBackgroundColor(Color.parseColor("#0b0e14"));
+        WebSettings s = web.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);          // localStorage: lưu preset
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setAllowFileAccess(false);
 
-        status = text("", 14, Color.WHITE);
-        root.addView(status);
-
-        toggle = button("", v -> {
-            Intent i = new Intent(this, EqService.class);
-            if (EqService.running) stopService(i);
-            else startForegroundService(i);
-            handler.postDelayed(this::refresh, 400);
-        });
-        root.addView(toggle);
-
-        root.addView(button("Mở giao diện EQ nhúng (dự phòng)", v -> {
-            if (!EqService.running) {
-                Toast.makeText(this, "Hãy bật dịch vụ EQ trước", Toast.LENGTH_SHORT).show();
-                return;
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
+                // Server nhúng có thể chưa kịp khởi động: thử lại vài lần
+                if (r.isForMainFrame() && retries++ < 20) {
+                    handler.postDelayed(() -> web.loadUrl(URL), 700);
+                }
             }
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("http://127.0.0.1:8766/")));
-        }));
 
-        root.addView(button("Cài đặt tối ưu pin (nên chọn Không hạn chế)", v ->
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                Uri u = r.getUrl();
+                if ("127.0.0.1".equals(u.getHost())) return false;
+                startActivity(new Intent(Intent.ACTION_VIEW, u));
+                return true;
+            }
+        });
+
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams p) {
+                if (fileCb != null) fileCb.onReceiveValue(null);
+                fileCb = cb;
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("audio/*");
+                try {
+                    startActivityForResult(Intent.createChooser(i, "Chọn nhạc"), REQ_FILE);
+                } catch (Exception e) {
+                    fileCb = null;
+                    return false;
+                }
+                return true;
+            }
+
+            @Override
+            public boolean onJsAlert(WebView v, String url, String msg, JsResult r) {
+                new AlertDialog.Builder(MainActivity.this).setMessage(msg)
+                        .setPositiveButton("OK", (d, w) -> r.confirm())
+                        .setOnCancelListener(d -> r.cancel()).show();
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView v, String url, String msg, JsResult r) {
+                new AlertDialog.Builder(MainActivity.this).setMessage(msg)
+                        .setPositiveButton("OK", (d, w) -> r.confirm())
+                        .setNegativeButton("Huỷ", (d, w) -> r.cancel())
+                        .setOnCancelListener(d -> r.cancel()).show();
+                return true;
+            }
+
+            @Override
+            public boolean onJsPrompt(WebView v, String url, String msg, String def, JsPromptResult r) {
+                EditText input = new EditText(MainActivity.this);
+                input.setText(def);
+                new AlertDialog.Builder(MainActivity.this).setMessage(msg).setView(input)
+                        .setPositiveButton("OK", (d, w) -> r.confirm(input.getText().toString()))
+                        .setNegativeButton("Huỷ", (d, w) -> r.cancel())
+                        .setOnCancelListener(d -> r.cancel()).show();
+                return true;
+            }
+        });
+
+        root.addView(web, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setBackgroundColor(Color.parseColor("#131824"));
+        bar.addView(barButton("Tối ưu pin", v ->
                 startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))));
+        bar.addView(barButton("Tắt EQ & thoát", v -> {
+            stopService(new Intent(this, EqService.class));
+            finishAffinity();
+        }));
+        root.addView(bar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        ScrollView sv = new ScrollView(this);
-        sv.addView(root);
-        setContentView(sv);
+        setContentView(root);
+        handler.postDelayed(() -> web.loadUrl(URL), 600);
     }
 
-    private void refresh() {
-        boolean run = EqService.running;
-        toggle.setText(run ? "Tắt dịch vụ EQ" : "Bật dịch vụ EQ");
-        StringBuilder sb = new StringBuilder();
-        sb.append("Dịch vụ: ").append(run ? "ĐANG CHẠY" : "ĐÃ TẮT").append('\n');
-        if (run) {
-            sb.append("WebSocket: ws://127.0.0.1:").append(WsServer.PORT).append('\n');
-            sb.append("Giao diện nhúng: http://127.0.0.1:").append(StaticServer.PORT).append("/\n\n");
-            EqEngine e = EqService.engineRef;
-            if (e != null) sb.append(e.summary());
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQ_FILE && fileCb != null) {
+            Uri[] r = null;
+            if (resultCode == RESULT_OK && data != null) {
+                r = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+            }
+            fileCb.onReceiveValue(r);
+            fileCb = null;
+        } else {
+            super.onActivityResult(requestCode, resultCode, data);
         }
-        if (EqService.lastError != null) sb.append("\n\n").append(EqService.lastError);
-        sb.append("\n\nLưu ý: \"đã khởi tạo\" chỉ nghĩa là Android không từ chối hiệu ứng. Hãy nghe thử với YouTube để xác nhận.");
-        status.setText(sb.toString());
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        handler.post(tick);
+    public void onBackPressed() {
+        if (web.canGoBack()) web.goBack();
+        else moveTaskToBack(true);   // thoát giao diện nhưng EQ vẫn chạy nền
     }
 
     @Override
-    protected void onPause() {
-        handler.removeCallbacks(tick);
-        super.onPause();
+    protected void onDestroy() {
+        handler.removeCallbacksAndMessages(null);
+        web.destroy();
+        super.onDestroy();
     }
 }
