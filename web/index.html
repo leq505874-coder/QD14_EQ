@@ -43,18 +43,37 @@
     <h2>Preset</h2>
     <div class="chips" id="presets"></div>
   </section>
-
-  <section class="card">
-    <h2>Kiểm thử trong app</h2>
-    <p class="hint">Phần này chỉ xử lý âm thanh phát <b>ngay trong trang này</b> (Web Audio API). Nếu EQ hệ thống đang chạy, nhạc ở đây có thể bị chỉnh hai lần.</p>
-    <input type="file" id="file" accept="audio/*,.mp3,.wav" class="file">
-    <audio id="player" controls preload="metadata"></audio>
-    <div class="row">
-      <button id="btnNoise" class="btn" type="button">Phát nhiễu hồng</button>
-    </div>
-    <canvas id="spectrum" class="spectrum" aria-label="Spectrum analyzer"></canvas>
-  </section>
 </main>
+
+<!-- ============ Viên thuốc bật/tắt EQ (kiểu Dynamic Island) ============ -->
+<div id="island" class="island on" role="group" aria-label="Điều khiển EQ">
+  <div class="isl-bar">
+    <button id="islPower" class="isl-main" type="button" role="switch" aria-checked="true" aria-label="Bật hoặc tắt EQ">
+      <span class="isl-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="isl-txt"><span class="isl-l1" id="islL1">EQ</span><span class="isl-l2" id="islL2"></span></span>
+      <span class="isl-st" id="islSt">BẬT</span>
+    </button>
+    <button id="islMore" class="isl-more" type="button" aria-expanded="false" aria-label="Mở rộng">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>
+    </button>
+  </div>
+  <div class="isl-panel">
+    <div id="islApp" class="isl-app"></div>
+    <div id="islSong" class="isl-song">Chưa có bài đang phát</div>
+    <div id="islArtist" class="isl-artist"></div>
+    <div class="isl-ctrl">
+      <button id="islPrev" type="button" aria-label="Bài trước"><svg viewBox="0 0 24 24"><path d="M18 5 9 12l9 7zM5 5h2v14H5z"/></svg></button>
+      <button id="islPlay" type="button" aria-label="Phát hoặc tạm dừng">
+        <svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="ic-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+      </button>
+      <button id="islNext" type="button" aria-label="Bài sau"><svg viewBox="0 0 24 24"><path d="m6 5 9 7-9 7zM17 5h2v14h-2z"/></svg></button>
+    </div>
+    <div id="islPerm" class="isl-perm" hidden>
+      <p>Để hiện tên bài đang phát, hãy cho EQo quyền đọc thông tin phát nhạc (Cài đặt → Bài đang phát).</p>
+    </div>
+  </div>
+</div>
 
 <!-- ============ Cài đặt ============ -->
 <div id="sheet" class="sheet" hidden>
@@ -108,6 +127,16 @@
     </section>
 
     <section class="card">
+      <h2>Bài đang phát</h2>
+      <label class="check"><input type="checkbox" id="showNow"> Hiện bài hát đang phát trên viên thuốc</label>
+      <p class="hint" id="nowStatus">Chưa kết nối app.</p>
+      <div class="row" id="nowBtns" hidden>
+        <button id="btnNotifAccess" class="btn" type="button">Cấp quyền đọc bài đang phát</button>
+      </div>
+      <p class="hint">App chỉ đọc tên bài và ca sĩ mà ứng dụng nhạc/video tự công bố (YouTube, Spotify, Zing MP3...). App không nghe hay ghi âm, và không nhận diện bài từ âm thanh kiểu Shazam. Quyền "truy cập thông báo" là cách duy nhất Android cho phép đọc thông tin này; EQo không đọc nội dung thông báo. Một số ứng dụng như TikTok, Roblox thường không công bố thông tin này.</p>
+    </section>
+
+    <section class="card">
       <h2>Hệ thống</h2>
       <label class="check"><input type="checkbox" id="autostart"> Tự bật EQ khi khởi động máy</label>
       <div class="lbl">Phạm vi áp dụng</div>
@@ -129,14 +158,26 @@
       <pre id="diag" class="diag">Chưa có dữ liệu.</pre>
     </section>
 
+    <details class="card" id="testCard">
+      <summary>Kiểm thử âm thanh trong app (mp3, nhiễu hồng)</summary>
+      <p class="hint">Chỉ xử lý âm thanh phát <b>ngay trong trang này</b> (Web Audio API). Nếu EQ hệ thống đang chạy, nhạc ở đây có thể bị chỉnh hai lần.</p>
+      <input type="file" id="file" accept="audio/*,.mp3,.wav" class="file">
+      <audio id="player" controls preload="metadata"></audio>
+      <div class="row">
+        <button id="btnNoise" class="btn" type="button">Phát nhiễu hồng</button>
+      </div>
+      <canvas id="spectrum" class="spectrum" aria-label="Spectrum analyzer"></canvas>
+    </details>
+
     <details class="card">
       <summary>Giới hạn cần biết</summary>
       <div class="adv">
         <ul>
           <li>Trình duyệt không xử lý được âm thanh của ứng dụng khác; chỉ phần Android của EQo làm được.</li>
           <li>Android không đảm bảo hiệu ứng hoạt động trên mọi máy: hãy nghe thử để xác nhận.</li>
-          <li>Đường cong và spectrum mô phỏng bộ lọc của trình duyệt; bộ EQ của máy có thể ít băng hơn.</li>
-          <li>Auto EQ hiện chọn preset theo thiết bị phát (loa, tai nghe, Bluetooth), chưa phân tích bài nhạc.</li>
+          <li>Đường cong mô phỏng bộ lọc chuẩn; bộ EQ của máy có thể ít băng hơn.</li>
+          <li>Auto EQ chọn preset theo thiết bị phát (loa, tai nghe, Bluetooth), chưa phân tích bài nhạc.</li>
+          <li>Bài đang phát lấy từ thông tin ứng dụng nhạc/video công bố, không phải nhận diện âm thanh.</li>
         </ul>
       </div>
     </details>

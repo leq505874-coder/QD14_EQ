@@ -10,8 +10,8 @@ android {
         applicationId 'vn.q14.audiolab'
         minSdk 28          // DynamicsProcessing cần API 28; OPPO A53 chạy Android 12 (API 31)
         targetSdk 31       // khớp Android 12 của máy mục tiêu
-        versionCode 3
-        versionName '1.2.0'
+        versionCode 4
+        versionName '1.3.0'
     }
 
     compileOptions {

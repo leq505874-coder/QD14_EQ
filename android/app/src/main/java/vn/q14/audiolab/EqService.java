@@ -32,6 +32,7 @@ public class EqService extends Service {
     private BroadcastReceiver receiver;
     private AudioManager audioManager;
     private AudioDeviceCallback deviceCallback;
+    private NowPlayingMonitor nowPlaying;
 
     private void refreshDevice() {
         if (engine == null || audioManager == null) return;
@@ -92,7 +93,7 @@ public class EqService extends Service {
                 public void onChanged() {
                     try {
                         WsServer w = ws;
-                        if (w != null) w.broadcast(engine.status().toString());
+                        if (w != null) w.broadcast(w.statusJson());
                     } catch (Exception e) {
                         Log.w(TAG, "broadcast lỗi", e);
                     }
@@ -102,6 +103,22 @@ public class EqService extends Service {
             Log.e(TAG, "Không khởi động được server", e);
             lastError = "Không khởi động được server: " + e.getMessage();
         }
+
+        // Bài đang phát (cần quyền truy cập thông báo; chưa cấp thì chỉ báo "chưa cấp quyền")
+        nowPlaying = new NowPlayingMonitor(this);
+        if (ws != null) ws.setNowPlaying(nowPlaying);
+        nowPlaying.setListener(new NowPlayingMonitor.Listener() {
+            @Override
+            public void onNowPlaying() {
+                try {
+                    WsServer w = ws;
+                    if (w != null) w.broadcast(w.statusJson());
+                } catch (Exception e) {
+                    Log.w(TAG, "broadcast bài đang phát lỗi", e);
+                }
+            }
+        });
+        nowPlaying.start();
 
         // Auto EQ theo thiết bị phát
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
@@ -129,6 +146,10 @@ public class EqService extends Service {
         try {
             if (audioManager != null && deviceCallback != null) audioManager.unregisterAudioDeviceCallback(deviceCallback);
         } catch (Exception ignored) {
+        }
+        if (nowPlaying != null) {
+            nowPlaying.setListener(null);
+            nowPlaying.stop();
         }
         try {
             if (receiver != null) unregisterReceiver(receiver);

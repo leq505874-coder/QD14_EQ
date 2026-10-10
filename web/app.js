@@ -46,6 +46,7 @@ const state = {
   engine: 'auto',
   preamp: 0, bass: 0, virt: 0, loud: 0,
   autostart: false,
+  showNow: true,
   autoOn: false,
   autoMap: { speaker: null, wired: null, bluetooth: null },
   lastAutoSeq: 0,
@@ -68,7 +69,7 @@ function loadState() {
   try { s = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { /* bỏ qua */ }
   if (!s || typeof s !== 'object') return;
   if (Array.isArray(s.gains) && s.gains.length === 10) state.gains = s.gains.map(clampGain);
-  ['enabled', 'headroom', 'autoOn', 'autostart'].forEach((k) => { if (typeof s[k] === 'boolean') state[k] = s[k]; });
+  ['enabled', 'headroom', 'autoOn', 'autostart', 'showNow'].forEach((k) => { if (typeof s[k] === 'boolean') state[k] = s[k]; });
   if (s.custom && typeof s.custom === 'object') state.custom = s.custom;
   if (['global', 'sessions', 'both'].includes(s.mode)) state.mode = s.mode;
   if (['auto', 'equalizer', 'dynamics'].includes(s.engine)) state.engine = s.engine;
@@ -158,76 +159,6 @@ function applyTheme() {
   if (NATIVE && NATIVE.setBarColor) { try { NATIVE.setBarColor(b.bg); } catch (e) { /* bỏ qua */ } }
 }
 
-/* ================= Web Audio (chỉ cho âm thanh trong trang) ================= */
-let ctx = null, pre = null, filters = [], vizFilters = [], analyser = null;
-let noiseSrc = null, noiseBuf = null;
-
-function initAudio() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  ctx = new AC();
-  const mk = (i) => {
-    const b = ctx.createBiquadFilter();
-    b.type = i === 0 ? 'lowshelf' : i === 9 ? 'highshelf' : 'peaking';
-    b.frequency.value = FREQS[i];
-    if (b.type === 'peaking') b.Q.value = 1.41;
-    return b;
-  };
-  filters = FREQS.map((_, i) => mk(i));
-  vizFilters = FREQS.map((_, i) => mk(i));   // chỉ để vẽ đường cong
-  pre = ctx.createGain();
-  analyser = ctx.createAnalyser();
-  analyser.fftSize = 2048;
-  analyser.smoothingTimeConstant = 0.8;
-  let node = pre;
-  filters.forEach((f) => { node.connect(f); node = f; });
-  node.connect(analyser);
-  analyser.connect(ctx.destination);
-  const src = ctx.createMediaElementSource($('player'));
-  src.connect(pre);
-}
-
-function applyWebAudio() {
-  if (!ctx) return;
-  const eff = effectiveGains();
-  filters.forEach((f, i) => f.gain.setTargetAtTime(eff[i], ctx.currentTime, 0.02));
-}
-
-function makeNoise() {
-  const len = ctx.sampleRate * 4;
-  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-  for (let c = 0; c < 2; c++) {
-    const d = buf.getChannelData(c);
-    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-    for (let i = 0; i < len; i++) {
-      const w = Math.random() * 2 - 1;
-      b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759;
-      b2 = 0.96900 * b2 + w * 0.1538520; b3 = 0.86650 * b3 + w * 0.3104856;
-      b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
-      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
-      b6 = w * 0.115926;
-    }
-  }
-  return buf;
-}
-
-async function toggleNoise() {
-  if (!ctx) return;
-  if (noiseSrc) {
-    noiseSrc.stop(); noiseSrc.disconnect(); noiseSrc = null;
-    $('btnNoise').classList.remove('on'); $('btnNoise').textContent = 'Phát nhiễu hồng';
-  } else {
-    await ctx.resume();
-    noiseBuf = noiseBuf || makeNoise();
-    noiseSrc = ctx.createBufferSource();
-    noiseSrc.buffer = noiseBuf; noiseSrc.loop = true;
-    const g = ctx.createGain(); g.gain.value = 0.5;
-    noiseSrc.connect(g); g.connect(pre); noiseSrc.start();
-    $('btnNoise').classList.add('on'); $('btnNoise').textContent = 'Dừng nhiễu hồng';
-  }
-  updateSpectrumLoop();
-}
-
 /* ================= Canvas ================= */
 function prep(canvas) {
   const dpr = window.devicePixelRatio || 1;
@@ -248,8 +179,32 @@ const curveFreqs = (() => {
   return a;
 })();
 
+/** Đáp ứng biên độ (dB) của một bộ lọc biquad RBJ tại tần số f. */
+function biquadDb(type, f0, Q, gainDb, f) {
+  const fs = 48000, A = Math.pow(10, gainDb / 40);
+  const w0 = 2 * Math.PI * f0 / fs, cw = Math.cos(w0), sw = Math.sin(w0);
+  let b0, b1, b2, a0, a1, a2;
+  if (type === 'peaking') {
+    const al = sw / (2 * Q);
+    b0 = 1 + al * A; b1 = -2 * cw; b2 = 1 - al * A;
+    a0 = 1 + al / A; a1 = -2 * cw; a2 = 1 - al / A;
+  } else {
+    const al = (sw / 2) * Math.SQRT2, sA = 2 * Math.sqrt(A) * al;
+    if (type === 'lowshelf') {
+      b0 = A * ((A + 1) - (A - 1) * cw + sA); b1 = 2 * A * ((A - 1) - (A + 1) * cw); b2 = A * ((A + 1) - (A - 1) * cw - sA);
+      a0 = (A + 1) + (A - 1) * cw + sA; a1 = -2 * ((A - 1) + (A + 1) * cw); a2 = (A + 1) + (A - 1) * cw - sA;
+    } else {
+      b0 = A * ((A + 1) + (A - 1) * cw + sA); b1 = -2 * A * ((A - 1) + (A + 1) * cw); b2 = A * ((A + 1) + (A - 1) * cw - sA);
+      a0 = (A + 1) - (A - 1) * cw + sA; a1 = 2 * ((A - 1) - (A + 1) * cw); a2 = (A + 1) - (A - 1) * cw - sA;
+    }
+  }
+  const w = 2 * Math.PI * f / fs, c1 = Math.cos(w), s1 = Math.sin(w), c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+  const nr = b0 + b1 * c1 + b2 * c2, ni = -(b1 * s1 + b2 * s2);
+  const dr = a0 + a1 * c1 + a2 * c2, di = -(a1 * s1 + a2 * s2);
+  return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
+}
+
 function drawCurve() {
-  if (!ctx) return;
   const { c, w, h } = prep($('curve'));
   const padL = 26, padR = 8, padT = 8, padB = 16;
   const pw = w - padL - padR, ph = h - padT - padB;
@@ -269,12 +224,10 @@ function drawCurve() {
     if (i % 2 === 0 || w > 380) { c.fillStyle = '#6f7a96'; c.fillText(LABELS[i], xOf(f), h - 3); }
   });
 
-  vizFilters.forEach((f, i) => { f.gain.value = state.gains[i]; });
   const total = new Float32Array(curveFreqs.length);
-  const mag = new Float32Array(curveFreqs.length), ph2 = new Float32Array(curveFreqs.length);
-  vizFilters.forEach((f) => {
-    f.getFrequencyResponse(curveFreqs, mag, ph2);
-    for (let i = 0; i < total.length; i++) total[i] += 20 * Math.log10(mag[i] || 1e-6);
+  FREQS.forEach((f0, i) => {
+    const type = i === 0 ? 'lowshelf' : i === 9 ? 'highshelf' : 'peaking';
+    for (let k = 0; k < total.length; k++) total[k] += biquadDb(type, f0, 1.41, state.gains[i], curveFreqs[k]);
   });
 
   const col = state.enabled ? th.accent : '#5d6785';
@@ -293,40 +246,6 @@ function drawCurve() {
     c.beginPath(); c.arc(xOf(FREQS[i]), yOf(g), 3.5, 0, Math.PI * 2);
     c.fillStyle = '#fff'; c.fill();
   });
-}
-
-/* ================= Spectrum ================= */
-let raf = 0;
-function updateSpectrumLoop() {
-  const active = !$('player').paused || !!noiseSrc;
-  if (active && !raf) raf = requestAnimationFrame(drawSpectrum);
-  if (!active && raf) { cancelAnimationFrame(raf); raf = 0; setTimeout(clearSpectrum, 60); }
-}
-function clearSpectrum() {
-  if ($('player').paused && !noiseSrc) {
-    const { c, w, h } = prep($('spectrum'));
-    c.fillStyle = '#6f7a96'; c.font = '12px system-ui'; c.textAlign = 'center';
-    c.fillText('Spectrum chỉ hiển thị khi phát âm thanh trong trang này', w / 2, h / 2);
-  }
-}
-function drawSpectrum() {
-  raf = requestAnimationFrame(drawSpectrum);
-  const { c, w, h } = prep($('spectrum'));
-  const data = new Uint8Array(analyser.frequencyBinCount);
-  analyser.getByteFrequencyData(data);
-  const nyq = ctx.sampleRate / 2, n = 40, bw = w / n;
-  const grad = c.createLinearGradient(0, h, 0, 0);
-  grad.addColorStop(0, th.accent2); grad.addColorStop(1, th.accent);
-  c.fillStyle = grad;
-  for (let k = 0; k < n; k++) {
-    const f0 = 20 * Math.pow(1000, k / n), f1 = 20 * Math.pow(1000, (k + 1) / n);
-    const i0 = Math.floor((f0 / nyq) * data.length);
-    const i1 = Math.max(i0 + 1, Math.floor((f1 / nyq) * data.length));
-    let m = 0;
-    for (let i = i0; i < i1 && i < data.length; i++) m = Math.max(m, data[i]);
-    const bh = (m / 255) * (h - 4);
-    c.fillRect(k * bw + 1, h - bh, bw - 2, bh);
-  }
 }
 
 /* ================= Thanh trượt ================= */
@@ -413,7 +332,7 @@ function setGain(i, g) {
 function changed() {
   renderBands(); renderPresets();
   $('eqOn').checked = state.enabled; $('eqOnText').textContent = state.enabled ? 'BẬT' : 'TẮT';
-  applyWebAudio(); drawCurve(); saveState(); scheduleSend(); renderLink();
+  drawCurve(); updateAudio(); saveState(); scheduleSend(); renderLink();
 }
 
 /* ================= Kết nối app Android ================= */
@@ -483,6 +402,7 @@ setInterval(() => {
 }, 4000);
 
 function renderLink() {
+  renderIsland();
   const pill = $('linkPill'), b = $('banner');
   b.replaceChildren();
   const add = (t) => { const p = document.createElement('p'); p.textContent = t; b.appendChild(p); return p; };
@@ -492,7 +412,7 @@ function renderLink() {
     pill.className = 'pill offline';
     pill.textContent = link.state === 'connecting' ? 'Đang kết nối…' : 'Chưa kết nối';
     b.className = 'banner warn';
-    add('Chưa kết nối với phần Android của EQo. EQ hiện CHỈ áp dụng cho âm thanh phát trong trang này (mục Kiểm thử), chưa tác động lên TikTok, YouTube, Roblox hay ứng dụng khác.');
+    add('Chưa kết nối với phần Android của EQo. nên EQ chưa tác động lên âm thanh nào trên máy (TikTok, YouTube, Roblox...).');
     add('Mở app EQo trên điện thoại để dịch vụ EQ tự bật. Nếu Chrome hỏi quyền truy cập thiết bị trong mạng cục bộ, hãy chọn Cho phép.');
     if (!embedded) {
       const p = add('Nếu vẫn không kết nối được, mở bản nhúng trong app: ');
@@ -536,6 +456,7 @@ function fxLine(name, f) {
   return name + ': ' + (f.ok ? 'hoạt động' : 'không dùng được (' + (f.message || '?') + ')');
 }
 function renderFxStatus() {
+  renderNowStatus();
   const el = $('fxStatus'), s = link.status;
   if (link.state !== 'online' || !s || !s.fx) {
     el.textContent = 'Các hiệu ứng này do Android xử lý và máy có thể không hỗ trợ. Trạng thái sẽ hiện ở đây khi đã kết nối.';
@@ -566,6 +487,161 @@ function renderDiag() {
   if (s.fx) L.push(fxLine('Bass Boost', s.fx.bass) + '\n' + fxLine('Vòm', s.fx.virt) + '\n' + fxLine('Loudness', s.fx.loud));
   if (Array.isArray(d.effects)) L.push('Hiệu ứng có trên máy: ' + (d.effects.join('; ') || '(không)'));
   el.textContent = L.join('\n');
+}
+
+/* ================= Viên thuốc bật/tắt & bài đang phát ================= */
+const APP_NAMES = {
+  'com.google.android.youtube': 'YouTube',
+  'com.google.android.apps.youtube.music': 'YouTube Music',
+  'com.spotify.music': 'Spotify',
+  'com.zhiliaoapp.musically': 'TikTok',
+  'com.ss.android.ugc.trill': 'TikTok',
+  'com.zing.mp3': 'Zing MP3',
+  'ht.nct': 'NhacCuaTui',
+  'com.soundcloud.android': 'SoundCloud',
+  'com.roblox.client': 'Roblox',
+  'com.android.chrome': 'Chrome',
+  'org.mozilla.firefox': 'Firefox',
+  'com.brave.browser': 'Brave',
+};
+function appName(pkg) { return APP_NAMES[pkg] || (pkg ? String(pkg).split('.').pop() : ''); }
+function presetLabel() {
+  const all = allPresets();
+  for (const n of Object.keys(all)) {
+    const g = all[n];
+    if (Array.isArray(g) && g.length === 10 && sameGains(state.gains, g)) return n;
+  }
+  return 'Tuỳ chỉnh';
+}
+function nowInfo() {
+  const s = link.status;
+  return link.state === 'online' && s && s.now ? s.now : null;
+}
+function currentSong() {
+  const n = nowInfo();
+  return state.showNow && n && n.access && (n.title || n.artist) ? n : null;
+}
+function renderIsland() {
+  const el = $('island'), now = currentSong(), on = state.enabled, n = nowInfo();
+  el.classList.toggle('on', on);
+  el.classList.toggle('offline', link.state !== 'online');
+  el.classList.toggle('song', !!now);
+  el.classList.toggle('playing', !!(now && now.playing));
+  $('islPower').setAttribute('aria-checked', String(on));
+  $('islL1').textContent = now ? (now.title || now.artist) : presetLabel();
+  $('islL2').textContent = now ? [now.title ? now.artist : '', now.app || appName(now.pkg)].filter(Boolean).join(' · ') : '';
+  $('islSt').textContent = on ? 'BẬT' : 'TẮT';
+  $('islSong').textContent = now ? (now.title || now.artist) : 'Chưa có bài đang phát';
+  $('islArtist').textContent = now ? (now.title ? now.artist : '') : '';
+  $('islApp').textContent = now ? (now.app || appName(now.pkg)) : '';
+  $('islPerm').hidden = !(state.showNow && n && n.access === false);
+}
+function renderNowStatus() {
+  const el = $('nowStatus'), n = nowInfo();
+  if (!n) { el.textContent = 'Chưa kết nối app.'; return; }
+  if (!n.access) {
+    el.textContent = 'Chưa có quyền đọc bài đang phát. Bấm nút bên dưới, tìm EQo trong danh sách và bật "Cho phép truy cập thông báo".';
+  } else if (n.title || n.artist) {
+    el.textContent = 'Đang thấy: ' + (n.title || '?') + (n.artist ? ' — ' + n.artist : '') + ' (' + (n.app || appName(n.pkg)) + ')';
+  } else {
+    el.textContent = 'Đã có quyền. Chưa thấy ứng dụng nào công bố bài hát (TikTok, Roblox... thường không công bố).';
+  }
+}
+function toggleEq() { state.enabled = !state.enabled; changed(); }
+function bindIsland() {
+  const isl = $('island');
+  $('islPower').addEventListener('click', toggleEq);
+  $('islMore').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = !isl.classList.contains('open');
+    isl.classList.toggle('open', open);
+    $('islMore').setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('click', (e) => {
+    if (isl.classList.contains('open') && !isl.contains(e.target)) {
+      isl.classList.remove('open'); $('islMore').setAttribute('aria-expanded', 'false');
+    }
+  });
+  [['islPrev', 'prev'], ['islPlay', 'toggle'], ['islNext', 'next']].forEach(([id, cmd]) => {
+    $(id).addEventListener('click', () => wsSend({ type: 'media', cmd }));
+  });
+}
+
+/* ================= Kiểm thử trong app (Web Audio, tạo lười) ================= */
+let actx = null, chain = null, analyser = null, noiseNode = null, specRaf = 0;
+function ensureAudio() {
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return true; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return false;
+  actx = new AC();
+  chain = FREQS.map((f, i) => {
+    const b = actx.createBiquadFilter();
+    b.type = i === 0 ? 'lowshelf' : i === 9 ? 'highshelf' : 'peaking';
+    b.frequency.value = f; b.Q.value = 1.41; return b;
+  });
+  for (let i = 0; i < 9; i++) chain[i].connect(chain[i + 1]);
+  analyser = actx.createAnalyser(); analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.8;
+  chain[9].connect(analyser); analyser.connect(actx.destination);
+  const src = actx.createMediaElementSource($('player'));
+  src.connect(chain[0]);
+  updateAudio();
+  return true;
+}
+function updateAudio() {
+  if (!chain) return;
+  const g = effectiveGains();
+  chain.forEach((b, i) => { b.gain.value = g[i]; });
+}
+function toggleNoise() {
+  if (!ensureAudio()) return;
+  if (noiseNode) { noiseNode.stop(); noiseNode.disconnect(); noiseNode = null; $('btnNoise').textContent = 'Phát nhiễu hồng'; return; }
+  const len = actx.sampleRate * 4, buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.969 * b2 + w * 0.153852;
+    b3 = 0.8665 * b3 + w * 0.3104856; b4 = 0.55 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.016898;
+    d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.08; b6 = w * 0.115926;
+  }
+  noiseNode = actx.createBufferSource(); noiseNode.buffer = buf; noiseNode.loop = true;
+  noiseNode.connect(chain[0]); noiseNode.start();
+  $('btnNoise').textContent = 'Dừng nhiễu hồng';
+  startSpectrum();
+}
+function clearSpectrum() {
+  cancelAnimationFrame(specRaf); specRaf = 0;
+  const cv = $('spectrum'); if (cv && cv.clientWidth) prep(cv);
+}
+function startSpectrum() {
+  if (specRaf || !analyser) return;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  const loop = () => {
+    const cv = $('spectrum');
+    if (!analyser || !cv.clientWidth || $('testCard').open === false) { specRaf = 0; return; }
+    const { c, w, h } = prep(cv);
+    analyser.getByteFrequencyData(data);
+    const nyq = actx.sampleRate / 2, n = 64;
+    c.fillStyle = th.accent;
+    for (let i = 0; i < n; i++) {
+      const f0 = 20 * Math.pow(1000, i / n), f1 = 20 * Math.pow(1000, (i + 1) / n);
+      const k0 = Math.floor(f0 / nyq * data.length), k1 = Math.max(k0 + 1, Math.floor(f1 / nyq * data.length));
+      let m = 0; for (let k = k0; k < k1 && k < data.length; k++) m = Math.max(m, data[k]);
+      const bh = (m / 255) * h;
+      c.fillRect(i * (w / n) + 1, h - bh, w / n - 2, bh);
+    }
+    specRaf = requestAnimationFrame(loop);
+  };
+  specRaf = requestAnimationFrame(loop);
+}
+function bindTest() {
+  $('file').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    const p = $('player'); if (p.dataset.url) URL.revokeObjectURL(p.dataset.url);
+    p.dataset.url = URL.createObjectURL(f); p.src = p.dataset.url;
+  });
+  $('player').addEventListener('play', () => { if (ensureAudio()) startSpectrum(); });
+  $('btnNoise').addEventListener('click', toggleNoise);
+  $('testCard').addEventListener('toggle', () => { if ($('testCard').open) startSpectrum(); else clearSpectrum(); });
 }
 
 /* ================= Cài đặt ================= */
@@ -662,6 +738,13 @@ function bindSettings() {
     });
   });
 
+  $('showNow').checked = state.showNow;
+  $('showNow').addEventListener('change', (e) => { state.showNow = e.target.checked; saveState(); renderIsland(); });
+  if (NATIVE && NATIVE.openNotificationAccess) {
+    $('nowBtns').hidden = false;
+    $('btnNotifAccess').addEventListener('click', () => { try { NATIVE.openNotificationAccess(); } catch (e) { /* bỏ qua */ } });
+  }
+
   $('autostart').checked = state.autostart;
   $('autostart').addEventListener('change', (e) => { state.autostart = e.target.checked; saveState(); pushConfig(); });
   $('selMode').value = state.mode; $('selEngine').value = state.engine;
@@ -683,7 +766,6 @@ function init() {
   loadState();
   applyTheme();
   buildBands();
-  initAudio();
 
   $('eqOn').addEventListener('change', (e) => { state.enabled = e.target.checked; changed(); });
   $('btnReset').addEventListener('click', () => { state.gains = Array(10).fill(0); changed(); });
@@ -693,23 +775,13 @@ function init() {
     if (PRESETS[name]) { alert('Tên này trùng preset có sẵn.'); return; }
     state.custom[name] = state.gains.slice(); saveState(); renderPresets(); fillAutoSelects();
   });
-  $('btnNoise').addEventListener('click', toggleNoise);
   $('linkPill').addEventListener('click', () => { retryDelay = 1500; if (link.state === 'offline') connect(); });
   bindSettings();
 
-  const player = $('player');
-  $('file').addEventListener('change', (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    if (player.dataset.url) URL.revokeObjectURL(player.dataset.url);
-    const url = URL.createObjectURL(f);
-    player.dataset.url = url; player.src = url; player.load();
-  });
-  player.addEventListener('play', async () => { if (ctx) await ctx.resume(); updateSpectrumLoop(); });
-  ['pause', 'ended'].forEach((ev) => player.addEventListener(ev, updateSpectrumLoop));
+  bindIsland(); bindTest();
 
-  window.addEventListener('resize', () => { drawCurve(); clearSpectrum(); });
-  changed(); clearSpectrum(); renderFxStatus();
+  window.addEventListener('resize', drawCurve);
+  changed(); renderFxStatus();
   connect();
 }
 init();

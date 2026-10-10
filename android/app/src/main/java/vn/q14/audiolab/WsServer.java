@@ -25,6 +25,7 @@ public final class WsServer extends WebSocketServer {
     };
 
     private final EqEngine engine;
+    private volatile NowPlayingMonitor nowPlaying;
 
     private static InetSocketAddress loopback() {
         try {
@@ -39,6 +40,22 @@ public final class WsServer extends WebSocketServer {
         this.engine = engine;
         setReuseAddr(true);
         setConnectionLostTimeout(30);
+    }
+
+    public void setNowPlaying(NowPlayingMonitor m) {
+        nowPlaying = m;
+    }
+
+    /** Trạng thái EQ kèm bài đang phát (khoá "now") trong cùng một tin nhắn. */
+    public String statusJson() {
+        try {
+            JSONObject st = engine.status();
+            NowPlayingMonitor np = nowPlaying;
+            if (np != null) st.put("now", np.toJson());
+            return st.toString();
+        } catch (Exception e) {
+            return engine.status().toString();
+        }
     }
 
     static boolean originAllowed(String origin) {
@@ -87,9 +104,12 @@ public final class WsServer extends WebSocketServer {
                 engine.setFx(m.optInt("bass", 0), m.optInt("virt", 0), (float) m.optDouble("loud", 0.0));
             } else if (type.equals("auto")) {
                 engine.setAuto(m.optBoolean("enabled", false), m.optJSONObject("profiles"));
+            } else if (type.equals("media")) {
+                NowPlayingMonitor np = nowPlaying;
+                if (np != null) np.control(m.optString("cmd", ""));
             }
-            // hello / getStatus: chỉ cần trả trạng thái
-            conn.send(engine.status().toString());
+            // hello / getStatus: chỉ cần trả trạng thái (kèm bài đang phát nếu có)
+            conn.send(statusJson());
         } catch (Exception e) {
             Log.w(TAG, "Tin nhắn lỗi", e);
         }

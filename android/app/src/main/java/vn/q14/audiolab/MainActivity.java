@@ -44,6 +44,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void openNotificationAccess() {
+            runOnUiThread(() -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
+        }
+
+        @JavascriptInterface
         public void stopAndExit() {
             runOnUiThread(() -> {
                 stopService(new Intent(MainActivity.this, EqService.class));

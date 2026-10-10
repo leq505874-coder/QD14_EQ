@@ -113,3 +113,9 @@ Bảo mật: server chỉ nghe trên `127.0.0.1` và chỉ nhận Origin `https:
 | Báo "Chưa áp dụng" + lý do lỗi | Máy từ chối hiệu ứng toàn cục: thử đổi bộ xử lý/phạm vi; nếu vẫn lỗi thì cần root hoặc cơ chế khác |
 | Báo "đã khởi tạo" nhưng không nghe thay đổi | Android chấp nhận hiệu ứng nhưng bộ trộn âm bỏ qua nó — hạn chế của session 0 trên máy này |
 | Action build lỗi | Mở log bước "Build debug APK" và gửi cho tôi |
+
+## v1.3: viên thuốc bật/tắt + bài đang phát
+
+- Viên thuốc kiểu Dynamic Island ở giữa phía dưới màn hình: chạm để bật/tắt EQ, bấm mũi tên để mở rộng (tên bài, ca sĩ, nút trước/phát/sau).
+- Bài đang phát đọc từ MediaSession mà ứng dụng nhạc/video tự công bố. Đây KHÔNG phải nhận diện âm thanh kiểu Shazam. Cần cấp "Quyền truy cập thông báo" cho EQo (Cài đặt → Bài đang phát). TikTok, Roblox... thường không công bố nên có thể không hiện.
+- Phần thử mp3 / nhiễu hồng nằm trong thẻ gập "Kiểm thử" ở Cài đặt.

@@ -13,7 +13,7 @@ body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 .pill{border:1px solid var(--line);background:var(--card);color:var(--text);padding:7px 10px;border-radius:var(--r);font-size:12px;font-weight:600}
 .pill::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;background:var(--muted)}
 .pill.ok::before{background:var(--ok)} .pill.offline::before{background:var(--warn)} .pill.err::before{background:var(--err)}
-main{max-width:560px;margin:0 auto;padding:12px 12px 40px;display:flex;flex-direction:column;gap:12px}
+main{max-width:560px;margin:0 auto;padding:12px 12px 120px;display:flex;flex-direction:column;gap:12px}
 .banner{border-radius:var(--r);padding:10px 12px;border:1px solid var(--line);background:var(--card);font-size:13px;line-height:1.45}
 .banner p{margin:0 0 6px} .banner p:last-child{margin:0}
 .banner.warn{border-color:#5a4720;background:#1f1a0f} .banner.ok{border-color:#1d5a3a;background:#0f1f17}
@@ -25,7 +25,8 @@ main{max-width:560px;margin:0 auto;padding:12px 12px 40px;display:flex;flex-dire
 .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 summary{cursor:pointer;font-weight:600;list-style:none} summary::-webkit-details-marker{display:none}
 summary::after{content:"▾";float:right;color:var(--muted)}
-.hint{color:var(--muted);font-size:12px;margin:6px 0}
+details[open] > summary{margin-bottom:10px}
+.hint{color:var(--muted);font-size:12px;margin:6px 0;line-height:1.45}
 .lbl{color:var(--muted);font-size:12px;margin:12px 0 6px}
 .switch{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
 .switch input{position:absolute;opacity:0;pointer-events:none}
@@ -81,3 +82,44 @@ select{width:100%;background:var(--card2);color:var(--text);border:1px solid var
 .diag{margin:10px 0 0;padding:10px;border-radius:var(--r);background:var(--bg);color:#b9c3dc;font-size:11.5px;white-space:pre-wrap;word-break:break-word;border:1px solid var(--line)}
 .adv{margin-top:10px;font-size:13px}
 .adv ul{margin:0;padding-left:18px;color:var(--muted);line-height:1.5}
+
+/* ===== Viên thuốc kiểu Dynamic Island ===== */
+.island{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:25;width:196px;display:flex;flex-direction:column-reverse;background:#000;color:#fff;border:1px solid rgba(255,255,255,.14);border-radius:28px;box-shadow:0 8px 28px rgba(0,0,0,.6);overflow:hidden;transition:width .28s cubic-bezier(.3,1.15,.4,1),box-shadow .25s,border-color .25s}
+.island.on{border-color:color-mix(in srgb,var(--accent) 55%,transparent);box-shadow:0 8px 28px rgba(0,0,0,.6),0 0 18px color-mix(in srgb,var(--accent) 30%,transparent)}
+.island.song{width:min(92vw,330px)}
+.island.open{width:min(92vw,360px)}
+.isl-bar{display:flex;align-items:center;height:50px}
+.isl-main{flex:1;min-width:0;display:flex;align-items:center;gap:10px;height:100%;padding:0 6px 0 16px;border:0;background:none;color:#fff;text-align:left}
+.isl-main:active{opacity:.8}
+.isl-main:focus-visible,.isl-more:focus-visible{outline:2px solid var(--accent2);outline-offset:-3px;border-radius:24px}
+.isl-bars{display:flex;align-items:flex-end;gap:2px;height:16px;width:14px;flex:none}
+.isl-bars i{display:block;width:3px;border-radius:2px;background:var(--accent);transform-origin:bottom}
+.isl-bars i:nth-child(1){height:8px} .isl-bars i:nth-child(2){height:16px} .isl-bars i:nth-child(3){height:11px}
+.island:not(.on) .isl-bars i{background:#666}
+.island.playing.on .isl-bars i{animation:isl-eq .9s ease-in-out infinite}
+.island.playing.on .isl-bars i:nth-child(2){animation-delay:-.45s}
+.island.playing.on .isl-bars i:nth-child(3){animation-delay:-.75s}
+@keyframes isl-eq{0%,100%{transform:scaleY(.4)}50%{transform:scaleY(1)}}
+.isl-txt{display:flex;flex-direction:column;min-width:0;flex:1;line-height:1.2}
+.isl-l1{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.isl-l2{display:none;font-size:11px;color:#a8b0c6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.island.song .isl-l2{display:block}
+.isl-st{flex:none;font-size:11px;font-weight:800;letter-spacing:.5px;padding:4px 9px;border-radius:var(--r);background:var(--accent);color:var(--on-accent)}
+.island:not(.on) .isl-st{background:#2a2a2a;color:#9aa3b8}
+.isl-more{flex:none;width:40px;height:100%;border:0;background:none;color:#9aa3b8;display:flex;align-items:center;justify-content:center}
+.isl-more svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;transition:transform .25s}
+.island.open .isl-more svg{transform:rotate(180deg)}
+.isl-panel{display:none;padding:14px 16px 4px}
+.island.open .isl-panel{display:block}
+.isl-app{font-size:11px;color:#8b95ad}
+.isl-song{font-size:16px;font-weight:700;margin-top:4px;word-break:break-word}
+.isl-artist{font-size:13px;color:#aab3c8;margin-top:2px;word-break:break-word}
+.isl-ctrl{display:flex;justify-content:center;gap:10px;margin:12px 0 8px}
+.isl-ctrl button{width:52px;height:40px;border-radius:var(--r);border:1px solid rgba(255,255,255,.14);background:#15171c;color:#fff;display:flex;align-items:center;justify-content:center}
+.isl-ctrl svg{width:20px;height:20px;fill:currentColor}
+.isl-ctrl button:active{transform:scale(.96)}
+.island.playing .ic-play{display:none}
+.island:not(.playing) .ic-pause{display:none}
+.isl-perm{margin:4px 0 10px;font-size:12px;line-height:1.45;color:#c9d2e6}
+.isl-perm p{margin:0}
+@media (prefers-reduced-motion:reduce){.island{transition:none}.island.playing.on .isl-bars i{animation:none}}
